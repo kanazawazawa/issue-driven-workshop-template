@@ -62,15 +62,17 @@ IssueDrivenWorkshop/
 
 ## CI/CD（GitHub Actions）
 
-`main` ブランチへのプッシュ時に自動で Azure App Service にデプロイされます。
+`main` ブランチへの Pull Request 作成時、または手動トリガーで Azure App Service にデプロイされます。
 
 ### セットアップ手順
 
 1. **Azure App Service を作成**
 2. **発行プロファイルを取得**: Azure Portal → App Service → 発行プロファイルのダウンロード
-3. **GitHub Secrets に登録**: リポジトリ → Settings → Secrets and variables → Actions
-   - `AZURE_WEBAPP_NAME`: App Service の名前
-   - `AZURE_WEBAPP_PUBLISH_PROFILE`: 発行プロファイルの内容
+3. **GitHub に登録**: リポジトリ → Settings → Secrets and variables → Actions
+   - **Variables** タブ:
+     - `AZURE_WEBAPP_NAME`: App Service の名前
+   - **Secrets** タブ:
+     - `AZURE_WEBAPP_PUBLISH_PROFILE`: 発行プロファイルの内容
 
 ## ライセンス
 
