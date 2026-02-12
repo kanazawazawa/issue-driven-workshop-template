@@ -1,4 +1,4 @@
-.page {
+﻿.page {
     position: relative;
     display: flex;
     flex-direction: column;
@@ -94,3 +94,12 @@ main {
         right: 0.75rem;
         top: 0.5rem;
     }
+
+.demo-banner {
+    background-color: #fff3cd;
+    color: #856404;
+    border-bottom: 1px solid #ffc107;
+    padding: 0.5rem 1rem;
+    text-align: center;
+    font-size: 0.9rem;
+}
