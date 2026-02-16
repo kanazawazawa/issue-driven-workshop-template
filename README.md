@@ -29,7 +29,7 @@ cp appsettings.Development.json.template appsettings.Development.json
 ```json
 {
   "AzureTableStorage": {
-    "ConnectionString": "<YOUR_CONNECTION_STRING>",
+    "ConnectionString": "<YOUR_AZURE_TABLE_STORAGE_CONNECTION_STRING>",
     "TableName": "Expenses"
   }
 }
@@ -120,7 +120,6 @@ graph TD
 > 以下のような方法で並行デプロイの競合を回避できます。
 > - **デプロイスロット**: ステージングスロットにデプロイ → 検証後にスワップ
 > - **環境の分離**: 開発者ごと・ブランチごとに別の App Service を用意
-> - **デプロイキュー**: GitHub Actions の `concurrency` 設定でデプロイを直列化
 
 ### 全員の変更をまとめてデプロイする場合
 
