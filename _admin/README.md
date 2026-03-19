@@ -1,6 +1,6 @@
 ﻿# ワークショップ管理スクリプト
 
-このフォルダには、ワークショップ環境を管理するためのスクリプトが含まれています。
+このフォルダには、ワークショップ環境の作成・削除を自動化するスクリプトが含まれています。
 
 ---
 
@@ -16,100 +16,18 @@
 ### ログイン
 
 ```powershell
-# Azure にログイン
 az login
-
-# GitHub にログイン
 gh auth login
 ```
 
----
+### テンプレートリポジトリの準備（初回のみ）
 
-## 🏗️ Azure 基盤リソースの作成（初回のみ）
-
-スクリプトを実行する前に、以下の Azure リソースを作成してください。
-
-```powershell
-# 変数を設定（任意の名前に変更可）
-$location = "swedencentral"
-$resourceGroup = "rg-myworkshop"
-$appServicePlan = "plan-myworkshop"
-$storageAccount = "samyworkshopstorage"  # 英小文字+数字のみ、3-24文字、グローバルで一意
-
-# 1. リソースグループを作成
-az group create --name $resourceGroup --location $location
-
-# 2. App Service プランを作成（Windows / P0v4。参加者数に応じてスケール変更）
-az appservice plan create --name $appServicePlan --resource-group $resourceGroup --location $location --sku P0v4 --os-type Windows
-
-# 3. ストレージアカウントを作成
-az storage account create --name $storageAccount --resource-group $resourceGroup --location $location --sku Standard_LRS
-
-# 4. 接続文字列を取得（config.json に設定する値）
-az storage account show-connection-string --name $storageAccount --resource-group $resourceGroup --query connectionString -o tsv
-```
-
-> 💡 テーブルはアプリが初回アクセス時に自動作成されるため、手動作成は不要です。
-
----
-
-## 🐙 テンプレートリポジトリの準備（初回のみ）
-
-1. GitHub でテンプレート用リポジトリを作成（例: `issue-driven-workshop-template`）
+1. GitHub でテンプレート用リポジトリを用意（このリポジトリ自体をテンプレートにする場合も OK）
 2. リポジトリの **Settings** → **General** → **"Template repository"** にチェック ✅
-3. `config.json` の `github.templateRepo` にこのリポジトリを指定
 
 ---
 
-## ⚙️ 初期設定
-
-### 1. 設定ファイルを作成
-
-```powershell
-cd _admin
-Copy-Item config.json.template config.json
-```
-
-### 2. `config.json` を編集
-
-```json
-{
-  "azure": {
-    "resourceGroup": "rg-myworkshop",
-    "appServicePlan": "plan-myworkshop",
-    "webAppNamePrefix": "app-workshop",
-    "connectionString": "<Azure Table Storage の接続文字列>",
-    "tableNamePrefix": "Expenses"
-  },
-  "github": {
-    "owner": "<GitHub ユーザー名 or 組織名>",
-    "templateRepo": "<owner>/issue-driven-workshop-template",
-    "repoPrefix": "issue-driven-workshop",
-    "visibility": "public"
-  }
-}
-```
-
-> ⚠️ `config.json` にはシークレットが含まれるため、`.gitignore` で除外されています。
-
----
-
-## 📁 スクリプト一覧
-
-| ファイル | 用途 | 説明 |
-|----------|------|------|
-| **`init-workshop.ps1`** | **🚀 ワンクリック全自動セットアップ** | **Azure基盤作成 → config生成 → 全参加者環境構築** |
-| **`destroy-workshop.ps1`** | **🧹 ワンクリック全削除** | **全参加者環境 + Azure基盤を一括削除** |
-| `setup-participant.ps1` | 受講者環境を個別作成 | Web App + リポジトリ + シークレット + デプロイ |
-| `cleanup-participant.ps1` | 受講者環境を個別削除 | Web App + リポジトリを削除 |
-| `create-workshop-webapp.ps1` | Web App のみ作成 | 単体で Web App を作成したい場合 |
-| `delete-workshop-webapp.ps1` | Web App を削除 | クリーンアップ用 |
-
----
-
-## 🚀 使い方
-
-### ワンクリックで全自動セットアップ（推奨）
+## 🚀 ワンクリックで全自動セットアップ
 
 ```powershell
 cd _admin
@@ -118,92 +36,97 @@ cd _admin
 
 これだけで以下がすべて自動実行されます：
 
-1. Azure リソースグループ、App Service プラン、ストレージアカウントを作成
+1. Azure リソース作成（リソースグループ、App Service プラン、ストレージアカウント）
 2. 接続文字列を取得して `config.json` を自動生成
 3. 参加者ごとに Web App + リポジトリ + シークレット設定 + 初回デプロイ
 
-#### カスタマイズ例
+### 確認画面の例
+
+```
+Workshop Setup Plan
+========================================
+
+Participants     : 5
+Location         : swedencentral
+Resource Group   : rg-workshop-et1xz0        ← ランダムサフィックス
+App Service Plan : plan-workshop-et1xz0 (P0v4)
+Storage Account  : saworkshopet1xz0
+Web App Prefix   : app-workshop-et1xz0
+GitHub Owner     : kanazawazawa               ← 自動検出
+Template Repo    : kanazawazawa/issue-driven-workshop-template
+Repo Prefix      : workshop-et1xz0
+Visibility       : public
+
+Proceed? (yes/no):
+```
+
+すべてのリソース名にはランダムサフィックスが付与され、複数回実行しても衝突しません。
+
+### 作成されるリソース
+
+| リソース | 命名規則 | 例 |
+|----------|----------|-----|
+| Resource Group | `rg-workshop-{suffix}` | `rg-workshop-et1xz0` |
+| App Service Plan | `plan-workshop-{suffix}` | `plan-workshop-et1xz0` |
+| Storage Account | `saworkshop{suffix}` | `saworkshopet1xz0` |
+| Web App | `app-workshop-{suffix}-{Number}` | `app-workshop-et1xz0-01` |
+| GitHub リポジトリ | `workshop-{suffix}-{Number}` | `workshop-et1xz0-01` |
+| Table | `Expenses{Number}` | `Expenses01` |
+
+### カスタマイズ例
 
 ```powershell
 # リージョンやSKUを変更する場合
 ./init-workshop.ps1 -ParticipantCount 10 -Location "japaneast" -Sku "B1"
 
-# リソース名を指定する場合
-./init-workshop.ps1 -ParticipantCount 3 -ResourceGroup "rg-myteam" -WebAppNamePrefix "app-myteam"
+# リソース名を指定する場合（サフィックスなし）
+./init-workshop.ps1 -ParticipantCount 3 -ResourceGroup "rg-myteam" -WebAppNamePrefix "app-myteam" -RepoPrefix "myteam-workshop"
 ```
 
 ---
 
-### 個別に受講者環境を作成
-
-`config.json` が既にある場合、参加者を個別に追加できます：
+## 🧹 ワンクリックで全削除
 
 ```powershell
-cd _admin
-./setup-participant.ps1 -Number "01"
-```
-
-#### 実行内容
-
-1. Azure Web App を作成
-2. アプリ設定を構成（接続文字列、テーブル名、64ビット）
-3. テンプレートからリポジトリを作成
-4. GitHub Actions シークレット/変数を設定
-5. 初回デプロイをトリガー
-
-#### 作成されるリソース（デフォルト設定の場合）
-
-| リソース | 命名規則 | 例 |
-|----------|----------|-----|
-| Web App | `{webAppNamePrefix}-{Number}` | `app-workshop-01` |
-| リポジトリ | `{repoPrefix}-{Number}` | `issue-driven-workshop-01` |
-| テーブル | `{tableNamePrefix}{Number}` | `Expenses01` |
-
----
-
-### Web App のみ作成
-
-```powershell
-./create-workshop-webapp.ps1 -Number "01"
-```
-
-### Web App を削除
-
-```powershell
-./delete-workshop-webapp.ps1 -Number "01"
-```
-
-### 環境を一括削除（Web App + リポジトリ）
-
-```powershell
-./cleanup-participant.ps1 -Number "01"
-```
-
----
-
-## 🔄 ワークフロー
-
-### 新規ワークショップの準備
-
-```powershell
-# 1. Azure & GitHub にログイン
-az login
-gh auth login
-
-# 2. ワンクリックで全自動セットアップ
-cd _admin
-./init-workshop.ps1 -ParticipantCount 5
-```
-
-### ワークショップ後のクリーンアップ
-
-```powershell
-# 全参加者の環境を一括削除
+# 全参加者の環境を一括削除（Web App + リポジトリ）
 ./destroy-workshop.ps1 -ParticipantCount 5
 
 # Azure 基盤リソースも含めてすべて削除する場合
 ./destroy-workshop.ps1 -ParticipantCount 5 -DeleteAzureResources
 ```
+
+確認プロンプトで `destroy` と入力して実行します。
+
+---
+
+## 📁 スクリプト一覧
+
+| ファイル | 用途 | 説明 |
+|----------|------|------|
+| **`init-workshop.ps1`** | **🚀 全自動セットアップ** | Azure 基盤作成 → config 生成 → 全参加者環境構築 |
+| **`destroy-workshop.ps1`** | **🧹 全自動削除** | 全参加者環境 + Azure 基盤を一括削除 |
+| `setup-participant.ps1` | 受講者環境を個別作成 | `config.json` が必要 |
+| `cleanup-participant.ps1` | 受講者環境を個別削除 | `config.json` が必要 |
+| `create-workshop-webapp.ps1` | Web App のみ作成 | `config.json` が必要 |
+| `delete-workshop-webapp.ps1` | Web App のみ削除 | `config.json` が必要 |
+
+> 💡 個別スクリプトは `init-workshop.ps1` が生成した `config.json` を使います。
+> 参加者の追加・削除など、部分的な操作が必要な場合に使用してください。
+
+---
+
+## ⚙️ config.json について
+
+`init-workshop.ps1` を使う場合は **自動生成** されるため、手動作成は不要です。
+
+個別スクリプトだけを使う場合は、手動で作成してください：
+
+```powershell
+Copy-Item config.json.template config.json
+# config.json を編集
+```
+
+> ⚠️ `config.json` にはシークレット（接続文字列）が含まれるため、`.gitignore` で除外されています。
 
 ---
 
@@ -221,8 +144,9 @@ cd _admin
 ## ⚠️ 注意事項
 
 1. **テーブル名にハイフン不可**: Azure Table Storage のテーブル名には英数字のみ使用可能
-2. **Web App 名はグローバルで一意**: 同じ名前の Web App は作成できません
+2. **Web App 名はグローバルで一意**: ランダムサフィックスにより自動回避
 3. **config.json は Git 管理外**: シークレットを含むため `.gitignore` で除外済み
+4. **テンプレートリポジトリは事前に準備が必要**: Settings で "Template repository" を有効化
 
 ---
 
@@ -234,4 +158,5 @@ cd _admin
 | `Not logged into any GitHub hosts` | `gh auth login` を実行 |
 | `The plan 'plan-xxx' doesn't exist` | `az account show` でサブスクリプションを確認 |
 | `InvalidResourceName` | テーブル名にハイフンや特殊文字がないか確認 |
-| `config.json not found` | `config.json.template` をコピーして設定 |
+| `config.json not found` | `init-workshop.ps1` を使うか、テンプレートからコピーして設定 |
+| リポジトリ作成でエラー | テンプレートリポジトリが "Template repository" に設定されているか確認 |
