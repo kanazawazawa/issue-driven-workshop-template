@@ -15,10 +15,10 @@ param(
     [int]$ParticipantCount,
 
     [string]$Location = "swedencentral",
-    [string]$ResourceGroup = "rg-workshop",
-    [string]$AppServicePlan = "plan-workshop",
+    [string]$ResourceGroup = "",
+    [string]$AppServicePlan = "",
     [string]$StorageAccount = "",
-    [string]$WebAppNamePrefix = "app-workshop",
+    [string]$WebAppNamePrefix = "",
     [string]$GitHubOwner = "",
     [string]$TemplateRepo = "",
     [string]$RepoPrefix = "issue-driven-workshop",
@@ -69,11 +69,13 @@ if (-not $TemplateRepo) {
     $TemplateRepo = "$GitHubOwner/issue-driven-workshop-template"
 }
 
-# Generate storage account name if not specified (must be globally unique, lowercase, 3-24 chars)
-if (-not $StorageAccount) {
-    $suffix = -join ((48..57) + (97..122) | Get-Random -Count 6 | ForEach-Object { [char]$_ })
-    $StorageAccount = "saworkshop$suffix"
-}
+# Generate a shared random suffix for resource names (6 chars, lowercase alphanumeric)
+$suffix = -join ((48..57) + (97..122) | Get-Random -Count 6 | ForEach-Object { [char]$_ })
+
+if (-not $ResourceGroup)   { $ResourceGroup   = "rg-workshop-$suffix" }
+if (-not $AppServicePlan)  { $AppServicePlan  = "plan-workshop-$suffix" }
+if (-not $StorageAccount)  { $StorageAccount  = "saworkshop$suffix" }
+if (-not $WebAppNamePrefix){ $WebAppNamePrefix = "app-workshop-$suffix" }
 
 # ===========================================
 # Confirmation
