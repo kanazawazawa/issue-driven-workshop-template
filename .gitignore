@@ -410,6 +410,6 @@ appsettings.*.json
 # launchSettings with secrets (keep template only)
 Properties/launchSettings.json
 
-# Admin scripts (not part of workshop)
-_admin/
+# Admin scripts - config.json contains secrets
+_admin/config.json
 

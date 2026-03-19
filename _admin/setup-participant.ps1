@@ -1,0 +1,141 @@
+﻿# setup-participant.ps1
+# Usage: ./setup-participant.ps1 -Number "01"
+# 
+# Prerequisites:
+#   - az login (Azure CLI)
+#   - gh auth login (GitHub CLI)
+#   - Copy config.json.template to config.json and fill in your values
+#
+# This script will:
+#   1. Create Azure Web App
+#   2. Configure app settings
+#   3. Create repository from template
+#   4. Set GitHub Actions secrets
+#   5. Trigger initial deployment
+
+param(
+    [Parameter(Mandatory=$true)]
+    [string]$Number
+)
+
+# ===========================================
+# Load Configuration
+# ===========================================
+$configPath = Join-Path $PSScriptRoot "config.json"
+if (-not (Test-Path $configPath)) {
+    Write-Host "ERROR: config.json not found." -ForegroundColor Red
+    Write-Host "Copy config.json.template to config.json and fill in your values." -ForegroundColor Yellow
+    exit 1
+}
+
+$config = Get-Content $configPath -Raw | ConvertFrom-Json
+
+# Azure Resources
+$resourceGroup = $config.azure.resourceGroup
+$appServicePlan = $config.azure.appServicePlan
+$webAppName = "$($config.azure.webAppNamePrefix)-$Number"
+
+# App Settings
+$connectionString = $config.azure.connectionString
+$tableName = "$($config.azure.tableNamePrefix)$Number"
+
+# GitHub
+$templateRepo = $config.github.templateRepo
+$newRepoName = "$($config.github.repoPrefix)-$Number"
+$ownerName = $config.github.owner
+$visibility = if ($config.github.visibility) { "--$($config.github.visibility)" } else { "--public" }
+
+# ===========================================
+# Step 1: Create Azure Web App
+# ===========================================
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "Step 1: Creating Azure Web App" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+
+Write-Host "Creating Web App: $webAppName" -ForegroundColor Yellow
+az webapp create --name $webAppName --resource-group $resourceGroup --plan $appServicePlan --runtime "dotnet:8" --tags "CostControl=Ignore" "SecurityControl=Ignore" --basic-auth Enabled
+
+# ===========================================
+# Step 2: Configure App Settings
+# ===========================================
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "Step 2: Configuring App Settings" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+
+az webapp config appsettings set --name $webAppName --resource-group $resourceGroup --settings "AzureTableStorage__ConnectionString=$connectionString" "AzureTableStorage__TableName=$tableName" --output none
+
+Write-Host "Configuring 64-bit platform..." -ForegroundColor Yellow
+az webapp config set --name $webAppName --resource-group $resourceGroup --use-32bit-worker-process false --output none
+
+Write-Host "App settings configured" -ForegroundColor Green
+
+# ===========================================
+# Step 3: Get Publish Profile
+# ===========================================
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "Step 3: Getting Publish Profile" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+
+$publishProfile = az webapp deployment list-publishing-profiles --name $webAppName --resource-group $resourceGroup --xml
+Write-Host "Publish profile retrieved" -ForegroundColor Green
+
+# ===========================================
+# Step 4: Create Repository from Template
+# ===========================================
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "Step 4: Creating Repository from Template" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+
+Write-Host "Creating repository: $ownerName/$newRepoName" -ForegroundColor Yellow
+gh repo create "$ownerName/$newRepoName" --template "$templateRepo" $visibility --clone=false
+
+# Wait for repository to be ready
+Write-Host "Waiting for repository to be ready..." -ForegroundColor Yellow
+Start-Sleep -Seconds 5
+
+# ===========================================
+# Step 5: Set GitHub Secrets
+# ===========================================
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "Step 5: Setting GitHub Secrets" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+
+Write-Host "Setting AZURE_WEBAPP_NAME (as variable)..." -ForegroundColor Yellow
+gh variable set AZURE_WEBAPP_NAME --body $webAppName --repo "$ownerName/$newRepoName"
+
+Write-Host "Setting AZURE_WEBAPP_PUBLISH_PROFILE (as secret)..." -ForegroundColor Yellow
+$publishProfile | gh secret set AZURE_WEBAPP_PUBLISH_PROFILE --repo "$ownerName/$newRepoName"
+
+# ===========================================
+# Step 6: Trigger Initial Deployment
+# ===========================================
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "Step 6: Triggering Initial Deployment" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+
+Write-Host "Waiting for repository to be fully ready..." -ForegroundColor Yellow
+Start-Sleep -Seconds 10
+
+Write-Host "Triggering deployment workflow..." -ForegroundColor Yellow
+gh workflow run deploy.yml --repo "$ownerName/$newRepoName"
+Write-Host "Deployment triggered" -ForegroundColor Green
+
+# ===========================================
+# Summary
+# ===========================================
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Green
+Write-Host "Setup Complete!" -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Green
+Write-Host ""
+Write-Host "Web App URL  : https://$webAppName.azurewebsites.net" -ForegroundColor White
+Write-Host "Repository   : https://github.com/$ownerName/$newRepoName" -ForegroundColor White
+Write-Host "Table Name   : $tableName" -ForegroundColor White
+Write-Host "Deployment   : Triggered (check Actions tab for status)" -ForegroundColor White
+Write-Host ""
