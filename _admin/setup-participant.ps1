@@ -98,11 +98,31 @@ Write-Host "Waiting for repository to be ready..." -ForegroundColor Yellow
 Start-Sleep -Seconds 5
 
 # ===========================================
-# Step 5: Set GitHub Secrets
+# Step 5: Remove _admin folder from participant repo
 # ===========================================
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Step 5: Setting GitHub Secrets" -ForegroundColor Cyan
+Write-Host "Step 5: Removing _admin folder from participant repo" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+
+$repoFullName = "$ownerName/$newRepoName"
+$adminFiles = gh api "repos/$repoFullName/contents/_admin" --jq '.[].path' 2>$null
+if ($adminFiles) {
+    foreach ($filePath in $adminFiles) {
+        $sha = gh api "repos/$repoFullName/contents/$filePath" --jq '.sha'
+        gh api --method DELETE "repos/$repoFullName/contents/$filePath" -f message="Remove admin scripts (not needed for participants)" -f sha="$sha" --silent
+    }
+    Write-Host "_admin folder removed from participant repo" -ForegroundColor Green
+} else {
+    Write-Host "_admin folder not found, skipping" -ForegroundColor Gray
+}
+
+# ===========================================
+# Step 6: Set GitHub Secrets
+# ===========================================
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "Step 6: Setting GitHub Secrets" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
 Write-Host "Setting AZURE_WEBAPP_NAME (as variable)..." -ForegroundColor Yellow
@@ -112,11 +132,11 @@ Write-Host "Setting AZURE_WEBAPP_PUBLISH_PROFILE (as secret)..." -ForegroundColo
 $publishProfile | gh secret set AZURE_WEBAPP_PUBLISH_PROFILE --repo "$ownerName/$newRepoName"
 
 # ===========================================
-# Step 6: Trigger Initial Deployment
+# Step 7: Trigger Initial Deployment
 # ===========================================
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Step 6: Triggering Initial Deployment" -ForegroundColor Cyan
+Write-Host "Step 7: Triggering Initial Deployment" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
 Write-Host "Waiting for repository to be fully ready..." -ForegroundColor Yellow
