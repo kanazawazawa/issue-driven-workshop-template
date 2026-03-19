@@ -23,7 +23,7 @@ param(
     [string]$TemplateRepo = "",
     [string]$RepoPrefix = "issue-driven-workshop",
     [string]$Visibility = "public",
-    [string]$Sku = "B1"
+    [string]$Sku = "P0v4"
 )
 
 Set-StrictMode -Version Latest
@@ -113,7 +113,7 @@ Write-Host "Creating resource group: $ResourceGroup" -ForegroundColor Yellow
 az group create --name $ResourceGroup --location $Location --output none
 
 Write-Host "Creating App Service plan: $AppServicePlan ($Sku)" -ForegroundColor Yellow
-az appservice plan create --name $AppServicePlan --resource-group $ResourceGroup --location $Location --sku $Sku --output none
+az appservice plan create --name $AppServicePlan --resource-group $ResourceGroup --location $Location --sku $Sku --os-type Windows --output none
 
 Write-Host "Creating storage account: $StorageAccount" -ForegroundColor Yellow
 az storage account create --name $StorageAccount --resource-group $ResourceGroup --location $Location --sku Standard_LRS --output none
