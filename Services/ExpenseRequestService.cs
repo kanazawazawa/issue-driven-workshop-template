@@ -6,13 +6,12 @@ namespace IssueDrivenWorkshop.Services;
 public class ExpenseRequestService
 {
     private readonly TableClient _tableClient;
-    
+
     // 業務ID（定数）
     private const string BusinessId = "expense-request";
 
-    public ExpenseRequestService(string connectionString, string tableName)
+    public ExpenseRequestService(TableServiceClient tableServiceClient, string tableName)
     {
-        var tableServiceClient = new TableServiceClient(connectionString);
         _tableClient = tableServiceClient.GetTableClient(tableName);
         _tableClient.CreateIfNotExists();
         

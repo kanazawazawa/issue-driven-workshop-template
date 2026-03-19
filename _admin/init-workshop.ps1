@@ -124,21 +124,19 @@ az storage account create --name $StorageAccount --resource-group $ResourceGroup
 Write-Host "Azure resources created" -ForegroundColor Green
 
 # ===========================================
-# Step 2: Get Connection String & Generate config.json
+# Step 2: Generate config.json
 # ===========================================
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Step 2: Generating config.json" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
-$connectionString = az storage account show-connection-string --name $StorageAccount --resource-group $ResourceGroup --query connectionString -o tsv
-
 $config = @{
     azure = @{
         resourceGroup    = $ResourceGroup
         appServicePlan   = $AppServicePlan
+        storageAccount   = $StorageAccount
         webAppNamePrefix = $WebAppNamePrefix
-        connectionString = $connectionString
         tableNamePrefix  = "Expenses"
     }
     github = @{

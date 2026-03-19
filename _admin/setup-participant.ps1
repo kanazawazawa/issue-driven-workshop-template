@@ -34,9 +34,9 @@ $config = Get-Content $configPath -Raw | ConvertFrom-Json
 $resourceGroup = $config.azure.resourceGroup
 $appServicePlan = $config.azure.appServicePlan
 $webAppName = "$($config.azure.webAppNamePrefix)-$Number"
+$storageAccount = $config.azure.storageAccount
 
 # App Settings
-$connectionString = $config.azure.connectionString
 $tableName = "$($config.azure.tableNamePrefix)$Number"
 
 # GitHub
@@ -57,19 +57,26 @@ Write-Host "Creating Web App: $webAppName" -ForegroundColor Yellow
 az webapp create --name $webAppName --resource-group $resourceGroup --plan $appServicePlan --runtime "dotnet:8" --tags "CostControl=Ignore" "SecurityControl=Ignore" --basic-auth Enabled
 
 # ===========================================
-# Step 2: Configure App Settings
+# Step 2: Configure App Settings & Managed Identity
 # ===========================================
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Step 2: Configuring App Settings" -ForegroundColor Cyan
+Write-Host "Step 2: Configuring App Settings & Managed Identity" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
-az webapp config appsettings set --name $webAppName --resource-group $resourceGroup --settings "AzureTableStorage__ConnectionString=$connectionString" "AzureTableStorage__TableName=$tableName" --output none
+az webapp config appsettings set --name $webAppName --resource-group $resourceGroup --settings "AzureTableStorage__StorageAccountName=$storageAccount" "AzureTableStorage__TableName=$tableName" --output none
 
 Write-Host "Configuring 64-bit platform..." -ForegroundColor Yellow
 az webapp config set --name $webAppName --resource-group $resourceGroup --use-32bit-worker-process false --output none
 
-Write-Host "App settings configured" -ForegroundColor Green
+Write-Host "Enabling Managed Identity..." -ForegroundColor Yellow
+$principalId = az webapp identity assign --name $webAppName --resource-group $resourceGroup --query principalId -o tsv
+
+Write-Host "Assigning Storage Table Data Contributor role..." -ForegroundColor Yellow
+$storageId = az storage account show --name $storageAccount --resource-group $resourceGroup --query id -o tsv
+az role assignment create --assignee-object-id $principalId --assignee-principal-type ServicePrincipal --role "Storage Table Data Contributor" --scope $storageId --output none
+
+Write-Host "App settings and Managed Identity configured" -ForegroundColor Green
 
 # ===========================================
 # Step 3: Get Publish Profile

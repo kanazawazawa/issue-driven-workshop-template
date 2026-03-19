@@ -2,8 +2,8 @@
   "azure": {
     "resourceGroup": "<YOUR_RESOURCE_GROUP>",
     "appServicePlan": "<YOUR_APP_SERVICE_PLAN>",
+    "storageAccount": "<YOUR_STORAGE_ACCOUNT_NAME>",
     "webAppNamePrefix": "app-workshop",
-    "connectionString": "<YOUR_AZURE_TABLE_STORAGE_CONNECTION_STRING>",
     "tableNamePrefix": "Expenses"
   },
   "github": {
