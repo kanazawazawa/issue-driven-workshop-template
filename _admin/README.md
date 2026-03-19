@@ -98,16 +98,45 @@ Copy-Item config.json.template config.json
 
 | ファイル | 用途 | 説明 |
 |----------|------|------|
-| `setup-participant.ps1` | 受講者環境を一括作成 | Web App + リポジトリ + シークレット + デプロイ |
+| **`init-workshop.ps1`** | **🚀 ワンクリック全自動セットアップ** | **Azure基盤作成 → config生成 → 全参加者環境構築** |
+| **`destroy-workshop.ps1`** | **🧹 ワンクリック全削除** | **全参加者環境 + Azure基盤を一括削除** |
+| `setup-participant.ps1` | 受講者環境を個別作成 | Web App + リポジトリ + シークレット + デプロイ |
+| `cleanup-participant.ps1` | 受講者環境を個別削除 | Web App + リポジトリを削除 |
 | `create-workshop-webapp.ps1` | Web App のみ作成 | 単体で Web App を作成したい場合 |
 | `delete-workshop-webapp.ps1` | Web App を削除 | クリーンアップ用 |
-| `cleanup-participant.ps1` | 環境を一括削除 | Web App + リポジトリを削除 |
 
 ---
 
 ## 🚀 使い方
 
-### 受講者環境を作成（推奨）
+### ワンクリックで全自動セットアップ（推奨）
+
+```powershell
+cd _admin
+./init-workshop.ps1 -ParticipantCount 5
+```
+
+これだけで以下がすべて自動実行されます：
+
+1. Azure リソースグループ、App Service プラン、ストレージアカウントを作成
+2. 接続文字列を取得して `config.json` を自動生成
+3. 参加者ごとに Web App + リポジトリ + シークレット設定 + 初回デプロイ
+
+#### カスタマイズ例
+
+```powershell
+# リージョンやSKUを変更する場合
+./init-workshop.ps1 -ParticipantCount 10 -Location "japaneast" -Sku "S1"
+
+# リソース名を指定する場合
+./init-workshop.ps1 -ParticipantCount 3 -ResourceGroup "rg-myteam" -WebAppNamePrefix "app-myteam"
+```
+
+---
+
+### 個別に受講者環境を作成
+
+`config.json` が既にある場合、参加者を個別に追加できます：
 
 ```powershell
 cd _admin
@@ -157,36 +186,23 @@ cd _admin
 ### 新規ワークショップの準備
 
 ```powershell
-# 1. Azure にログイン
+# 1. Azure & GitHub にログイン
 az login
-
-# 2. GitHub にログイン
 gh auth login
 
-# 3. config.json を設定
-Copy-Item config.json.template config.json
-# config.json を編集...
-
-# 4. 受講者数分のセットアップを実行
-./setup-participant.ps1 -Number "01"
-./setup-participant.ps1 -Number "02"
-./setup-participant.ps1 -Number "03"
+# 2. ワンクリックで全自動セットアップ
+cd _admin
+./init-workshop.ps1 -ParticipantCount 5
 ```
 
 ### ワークショップ後のクリーンアップ
 
 ```powershell
-# 各参加者の Web App + リポジトリを削除
-./cleanup-participant.ps1 -Number "01"
-./cleanup-participant.ps1 -Number "02"
-./cleanup-participant.ps1 -Number "03"
-```
+# 全参加者の環境を一括削除
+./destroy-workshop.ps1 -ParticipantCount 5
 
-### Azure 基盤リソースの削除（すべて不要になった場合）
-
-```powershell
-# リソースグループごと削除（中の全リソースが削除されます）
-az group delete --name rg-myworkshop --yes --no-wait
+# Azure 基盤リソースも含めてすべて削除する場合
+./destroy-workshop.ps1 -ParticipantCount 5 -DeleteAzureResources
 ```
 
 ---
