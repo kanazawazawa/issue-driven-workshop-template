@@ -25,6 +25,42 @@ gh auth login
 
 ---
 
+## 🏗️ Azure 基盤リソースの作成（初回のみ）
+
+スクリプトを実行する前に、以下の Azure リソースを作成してください。
+
+```powershell
+# 変数を設定（任意の名前に変更可）
+$location = "swedencentral"
+$resourceGroup = "rg-myworkshop"
+$appServicePlan = "plan-myworkshop"
+$storageAccount = "samyworkshopstorage"  # 英小文字+数字のみ、3-24文字、グローバルで一意
+
+# 1. リソースグループを作成
+az group create --name $resourceGroup --location $location
+
+# 2. App Service プランを作成（B1 = Basic。参加者数に応じてスケール変更）
+az appservice plan create --name $appServicePlan --resource-group $resourceGroup --location $location --sku B1
+
+# 3. ストレージアカウントを作成
+az storage account create --name $storageAccount --resource-group $resourceGroup --location $location --sku Standard_LRS
+
+# 4. 接続文字列を取得（config.json に設定する値）
+az storage account show-connection-string --name $storageAccount --resource-group $resourceGroup --query connectionString -o tsv
+```
+
+> 💡 テーブルはアプリが初回アクセス時に自動作成されるため、手動作成は不要です。
+
+---
+
+## 🐙 テンプレートリポジトリの準備（初回のみ）
+
+1. GitHub でテンプレート用リポジトリを作成（例: `issue-driven-workshop-template`）
+2. リポジトリの **Settings** → **General** → **"Template repository"** にチェック ✅
+3. `config.json` の `github.templateRepo` にこのリポジトリを指定
+
+---
+
 ## ⚙️ 初期設定
 
 ### 1. 設定ファイルを作成
@@ -140,9 +176,17 @@ Copy-Item config.json.template config.json
 ### ワークショップ後のクリーンアップ
 
 ```powershell
+# 各参加者の Web App + リポジトリを削除
 ./cleanup-participant.ps1 -Number "01"
 ./cleanup-participant.ps1 -Number "02"
 ./cleanup-participant.ps1 -Number "03"
+```
+
+### Azure 基盤リソースの削除（すべて不要になった場合）
+
+```powershell
+# リソースグループごと削除（中の全リソースが削除されます）
+az group delete --name rg-myworkshop --yes --no-wait
 ```
 
 ---
