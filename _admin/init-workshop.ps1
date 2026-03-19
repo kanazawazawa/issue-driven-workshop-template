@@ -21,7 +21,7 @@ param(
     [string]$WebAppNamePrefix = "",
     [string]$GitHubOwner = "",
     [string]$TemplateRepo = "",
-    [string]$RepoPrefix = "issue-driven-workshop",
+    [string]$RepoPrefix = "",
     [string]$Visibility = "public",
     [string]$Sku = "P0v4"
 )
@@ -76,6 +76,7 @@ if (-not $ResourceGroup)   { $ResourceGroup   = "rg-workshop-$suffix" }
 if (-not $AppServicePlan)  { $AppServicePlan  = "plan-workshop-$suffix" }
 if (-not $StorageAccount)  { $StorageAccount  = "saworkshop$suffix" }
 if (-not $WebAppNamePrefix){ $WebAppNamePrefix = "app-workshop-$suffix" }
+if (-not $RepoPrefix)      { $RepoPrefix      = "workshop-$suffix" }
 
 # ===========================================
 # Confirmation
