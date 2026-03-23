@@ -19,9 +19,9 @@ param(
     [string]$AppServicePlan = "",
     [string]$StorageAccount = "",
     [string]$WebAppNamePrefix = "",
-    [string]$GitHubOwner = "",
-    [string]$TemplateRepo = "",
-    [string]$RepoPrefix = "",
+    [string]$RepoOwner = "",
+    [string]$TemplateRepoFullName = "",
+    [string]$RepoNamePrefix = "",
     [string]$Visibility = "public",
     [string]$Sku = "P0v4"
 )
@@ -54,20 +54,27 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "GitHub CLI: authenticated" -ForegroundColor Green
 
-# Auto-detect GitHub owner if not specified
-if (-not $GitHubOwner) {
-    $GitHubOwner = (gh api user --jq '.login') 2>$null
-    if (-not $GitHubOwner) {
-        Write-Host "ERROR: Could not detect GitHub username. Specify -GitHubOwner." -ForegroundColor Red
+# Auto-detect template repo from the current repository's origin
+if (-not $TemplateRepoFullName) {
+    $originUrl = git remote get-url origin 2>$null
+    if ($originUrl -and $originUrl -match '(?:github\.com|[^/:]+\.ghe\.com)[:/]([^/]+/[^/]+?)(?:\.git)?$') {
+        $TemplateRepoFullName = $Matches[1]
+    } else {
+        Write-Host "ERROR: Could not detect template repo from git origin. Specify -TemplateRepoFullName." -ForegroundColor Red
         exit 1
     }
 }
-Write-Host "GitHub owner: $GitHubOwner" -ForegroundColor Green
+Write-Host "Template repo: $TemplateRepoFullName" -ForegroundColor Green
 
-# Default template repo
-if (-not $TemplateRepo) {
-    $TemplateRepo = "$GitHubOwner/issue-driven-workshop-template"
+# Auto-detect target owner if not specified
+if (-not $RepoOwner) {
+    $RepoOwner = (gh api user --jq '.login') 2>$null
+    if (-not $RepoOwner) {
+        Write-Host "ERROR: Could not detect GitHub username. Specify -RepoOwner." -ForegroundColor Red
+        exit 1
+    }
 }
+Write-Host "Repo owner: $RepoOwner" -ForegroundColor Green
 
 # Generate a shared random suffix for resource names (6 chars, lowercase alphanumeric)
 $suffix = -join ((48..57) + (97..122) | Get-Random -Count 6 | ForEach-Object { [char]$_ })
@@ -76,7 +83,7 @@ if (-not $ResourceGroup)   { $ResourceGroup   = "rg-workshop-$suffix" }
 if (-not $AppServicePlan)  { $AppServicePlan  = "plan-workshop-$suffix" }
 if (-not $StorageAccount)  { $StorageAccount  = "saworkshop$suffix" }
 if (-not $WebAppNamePrefix){ $WebAppNamePrefix = "app-workshop-$suffix" }
-if (-not $RepoPrefix)      { $RepoPrefix      = "workshop-$suffix" }
+if (-not $RepoNamePrefix)  { $RepoNamePrefix  = "workshop-$suffix" }
 
 # ===========================================
 # Confirmation
@@ -92,9 +99,9 @@ Write-Host "Resource Group   : $ResourceGroup" -ForegroundColor White
 Write-Host "App Service Plan : $AppServicePlan ($Sku)" -ForegroundColor White
 Write-Host "Storage Account  : $StorageAccount" -ForegroundColor White
 Write-Host "Web App Prefix   : $WebAppNamePrefix" -ForegroundColor White
-Write-Host "GitHub Owner     : $GitHubOwner" -ForegroundColor White
-Write-Host "Template Repo    : $TemplateRepo" -ForegroundColor White
-Write-Host "Repo Prefix      : $RepoPrefix" -ForegroundColor White
+Write-Host "Repo Owner       : $RepoOwner" -ForegroundColor White
+Write-Host "Template Repo    : $TemplateRepoFullName" -ForegroundColor White
+Write-Host "Repo Name Prefix : $RepoNamePrefix" -ForegroundColor White
 Write-Host "Visibility       : $Visibility" -ForegroundColor White
 Write-Host ""
 
@@ -140,9 +147,9 @@ $config = @{
         tableNamePrefix  = "Expenses"
     }
     github = @{
-        owner        = $GitHubOwner
-        templateRepo = $TemplateRepo
-        repoPrefix   = $RepoPrefix
+        repoOwner            = $RepoOwner
+        templateRepoFullName = $TemplateRepoFullName
+        repoNamePrefix       = $RepoNamePrefix
         visibility   = $Visibility
     }
 }
@@ -197,10 +204,10 @@ Write-Host "Participant Results:" -ForegroundColor White
 foreach ($r in $results) {
     $color = if ($r.Status -eq "OK") { "Green" } else { "Red" }
     $webApp = "$WebAppNamePrefix-$($r.Number)"
-    $repo = "$GitHubOwner/$RepoPrefix-$($r.Number)"
+    $repo = "$RepoOwner/$RepoNamePrefix-$($r.Number)"
     Write-Host "  [$($r.Status)] $($r.Number) - https://$webApp.azurewebsites.net | https://github.com/$repo" -ForegroundColor $color
 }
 
 Write-Host ""
-Write-Host "Template Repo: https://github.com/$TemplateRepo" -ForegroundColor White
+Write-Host "Template Repo: https://github.com/$TemplateRepoFullName" -ForegroundColor White
 Write-Host ""

@@ -35,8 +35,8 @@ $config = Get-Content $configPath -Raw | ConvertFrom-Json
 
 $resourceGroup = $config.azure.resourceGroup
 $webAppNamePrefix = $config.azure.webAppNamePrefix
-$ownerName = $config.github.owner
-$repoPrefix = $config.github.repoPrefix
+$repoOwner = $config.github.repoOwner
+$repoNamePrefix = $config.github.repoNamePrefix
 
 # ===========================================
 # Confirmation
@@ -52,7 +52,7 @@ Write-Host ""
 for ($i = 1; $i -le $ParticipantCount; $i++) {
     $number = $i.ToString("D2")
     Write-Host "  Web App    : $webAppNamePrefix-$number" -ForegroundColor White
-    Write-Host "  Repository : $ownerName/$repoPrefix-$number" -ForegroundColor White
+    Write-Host "  Repository : $repoOwner/$repoNamePrefix-$number" -ForegroundColor White
     Write-Host ""
 }
 
@@ -78,7 +78,7 @@ Write-Host "========================================" -ForegroundColor Cyan
 for ($i = 1; $i -le $ParticipantCount; $i++) {
     $number = $i.ToString("D2")
     $webAppName = "$webAppNamePrefix-$number"
-    $repoName = "$repoPrefix-$number"
+    $repoName = "$repoNamePrefix-$number"
 
     Write-Host ""
     Write-Host "--- Participant $number ---" -ForegroundColor Yellow
@@ -93,8 +93,8 @@ for ($i = 1; $i -le $ParticipantCount; $i++) {
     }
 
     # Delete GitHub Repository
-    Write-Host "Deleting repository: $ownerName/$repoName" -ForegroundColor Yellow
-    gh repo delete "$ownerName/$repoName" --yes 2>$null
+    Write-Host "Deleting repository: $repoOwner/$repoName" -ForegroundColor Yellow
+    gh repo delete "$repoOwner/$repoName" --yes 2>$null
     if ($LASTEXITCODE -eq 0) {
         Write-Host "  Repository deleted" -ForegroundColor Green
     } else {

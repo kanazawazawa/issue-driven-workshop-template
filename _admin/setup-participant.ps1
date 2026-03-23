@@ -40,9 +40,9 @@ $storageAccount = $config.azure.storageAccount
 $tableName = "$($config.azure.tableNamePrefix)$Number"
 
 # GitHub
-$templateRepo = $config.github.templateRepo
-$newRepoName = "$($config.github.repoPrefix)-$Number"
-$ownerName = $config.github.owner
+$templateRepoFullName = $config.github.templateRepoFullName
+$newRepoName = "$($config.github.repoNamePrefix)-$Number"
+$repoOwner = $config.github.repoOwner
 $visibility = if ($config.github.visibility) { "--$($config.github.visibility)" } else { "--public" }
 
 # ===========================================
@@ -97,8 +97,8 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Step 4: Creating Repository from Template" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
-Write-Host "Creating repository: $ownerName/$newRepoName" -ForegroundColor Yellow
-gh repo create "$ownerName/$newRepoName" --template "$templateRepo" $visibility --clone=false
+Write-Host "Creating repository: $repoOwner/$newRepoName" -ForegroundColor Yellow
+gh repo create "$repoOwner/$newRepoName" --template "$templateRepoFullName" $visibility --clone=false
 
 # Wait for repository to be ready
 Write-Host "Waiting for repository to be ready..." -ForegroundColor Yellow
@@ -112,7 +112,7 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Step 5: Removing _admin folder from participant repo" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
-$repoFullName = "$ownerName/$newRepoName"
+$repoFullName = "$repoOwner/$newRepoName"
 $adminFiles = gh api "repos/$repoFullName/contents/_admin" --jq '.[].path' 2>$null
 if ($adminFiles) {
     foreach ($filePath in $adminFiles) {
@@ -133,10 +133,10 @@ Write-Host "Step 6: Setting GitHub Secrets" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
 Write-Host "Setting AZURE_WEBAPP_NAME (as variable)..." -ForegroundColor Yellow
-gh variable set AZURE_WEBAPP_NAME --body $webAppName --repo "$ownerName/$newRepoName"
+gh variable set AZURE_WEBAPP_NAME --body $webAppName --repo "$repoOwner/$newRepoName"
 
 Write-Host "Setting AZURE_WEBAPP_PUBLISH_PROFILE (as secret)..." -ForegroundColor Yellow
-$publishProfile | gh secret set AZURE_WEBAPP_PUBLISH_PROFILE --repo "$ownerName/$newRepoName"
+$publishProfile | gh secret set AZURE_WEBAPP_PUBLISH_PROFILE --repo "$repoOwner/$newRepoName"
 
 # ===========================================
 # Step 7: Trigger Initial Deployment
@@ -150,7 +150,7 @@ Write-Host "Waiting for repository to be fully ready..." -ForegroundColor Yellow
 Start-Sleep -Seconds 10
 
 Write-Host "Triggering deployment workflow..." -ForegroundColor Yellow
-gh workflow run deploy.yml --repo "$ownerName/$newRepoName"
+gh workflow run deploy.yml --repo "$repoOwner/$newRepoName"
 Write-Host "Deployment triggered" -ForegroundColor Green
 
 # ===========================================
@@ -162,7 +162,7 @@ Write-Host "Setup Complete!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Web App URL  : https://$webAppName.azurewebsites.net" -ForegroundColor White
-Write-Host "Repository   : https://github.com/$ownerName/$newRepoName" -ForegroundColor White
+Write-Host "Repository   : https://github.com/$repoOwner/$newRepoName" -ForegroundColor White
 Write-Host "Table Name   : $tableName" -ForegroundColor White
 Write-Host "Deployment   : Triggered (check Actions tab for status)" -ForegroundColor White
 Write-Host ""
