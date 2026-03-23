@@ -18,6 +18,23 @@ param(
     [string]$Number
 )
 
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+# ===========================================
+# Helper: Run az CLI with exit code checking
+# ===========================================
+function Invoke-AzCommand {
+    param([string]$Description, [scriptblock]$Command)
+    Write-Host "$Description" -ForegroundColor Yellow
+    $output = & $Command 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        $errorMsg = ($output | Out-String).Trim()
+        throw "az command failed: $Description`n$errorMsg"
+    }
+    return $output
+}
+
 # ===========================================
 # Load Configuration
 # ===========================================
@@ -53,8 +70,9 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Step 1: Creating Azure Web App" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
-Write-Host "Creating Web App: $webAppName" -ForegroundColor Yellow
-az webapp create --name $webAppName --resource-group $resourceGroup --plan $appServicePlan --runtime "dotnet:8" --tags "CostControl=Ignore" "SecurityControl=Ignore" --basic-auth Enabled
+Invoke-AzCommand -Description "Creating Web App: $webAppName" -Command {
+    az webapp create --name $webAppName --resource-group $resourceGroup --plan $appServicePlan --runtime "dotnet:8" --tags "CostControl=Ignore" "SecurityControl=Ignore" --basic-auth Enabled
+} | Out-Null
 
 # ===========================================
 # Step 2: Configure App Settings & Managed Identity
@@ -64,17 +82,25 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Step 2: Configuring App Settings & Managed Identity" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
-az webapp config appsettings set --name $webAppName --resource-group $resourceGroup --settings "AzureTableStorage__StorageAccountName=$storageAccount" "AzureTableStorage__TableName=$tableName" --output none
+Invoke-AzCommand -Description "Configuring app settings" -Command {
+    az webapp config appsettings set --name $webAppName --resource-group $resourceGroup --settings "AzureTableStorage__StorageAccountName=$storageAccount" "AzureTableStorage__TableName=$tableName" --output none
+}
 
-Write-Host "Configuring 64-bit platform..." -ForegroundColor Yellow
-az webapp config set --name $webAppName --resource-group $resourceGroup --use-32bit-worker-process false --output none
+Invoke-AzCommand -Description "Configuring 64-bit platform" -Command {
+    az webapp config set --name $webAppName --resource-group $resourceGroup --use-32bit-worker-process false --output none
+}
 
-Write-Host "Enabling Managed Identity..." -ForegroundColor Yellow
-$principalId = az webapp identity assign --name $webAppName --resource-group $resourceGroup --query principalId -o tsv
+$principalId = (Invoke-AzCommand -Description "Enabling Managed Identity" -Command {
+    az webapp identity assign --name $webAppName --resource-group $resourceGroup --query principalId -o tsv
+}) | Select-Object -Last 1
 
-Write-Host "Assigning Storage Table Data Contributor role..." -ForegroundColor Yellow
-$storageId = az storage account show --name $storageAccount --resource-group $resourceGroup --query id -o tsv
-az role assignment create --assignee-object-id $principalId --assignee-principal-type ServicePrincipal --role "Storage Table Data Contributor" --scope $storageId --output none
+$storageId = (Invoke-AzCommand -Description "Getting storage account ID" -Command {
+    az storage account show --name $storageAccount --resource-group $resourceGroup --query id -o tsv
+}) | Select-Object -Last 1
+
+Invoke-AzCommand -Description "Assigning role" -Command {
+    az role assignment create --assignee-object-id $principalId --assignee-principal-type ServicePrincipal --role "Storage Table Data Contributor" --scope $storageId --output none
+}
 
 Write-Host "App settings and Managed Identity configured" -ForegroundColor Green
 
@@ -86,7 +112,9 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Step 3: Getting Publish Profile" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
-$publishProfile = az webapp deployment list-publishing-profiles --name $webAppName --resource-group $resourceGroup --xml
+$publishProfile = (Invoke-AzCommand -Description "Getting publish profile" -Command {
+    az webapp deployment list-publishing-profiles --name $webAppName --resource-group $resourceGroup --xml
+}) | Select-Object -Last 1
 Write-Host "Publish profile retrieved" -ForegroundColor Green
 
 # ===========================================
