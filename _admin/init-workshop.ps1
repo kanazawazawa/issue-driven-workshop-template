@@ -192,9 +192,10 @@ $spJson = az ad sp create-for-rbac --name $spName --role Contributor --scopes "/
 $sp = $spJson | ConvertFrom-Json
 $clientId = $sp.clientId
 
-# Grant User Access Administrator so the SP can assign RBAC roles to slot Managed Identities
+# Grant User Access Administrator on Storage Account scope so the SP can assign RBAC roles to slot Managed Identities
 $spObjectId = az ad sp show --id $clientId --query id -o tsv
-az role assignment create --assignee-object-id $spObjectId --assignee-principal-type ServicePrincipal --role "User Access Administrator" --scopes "/subscriptions/$subscriptionId/resourceGroups/$ResourceGroup" --output none
+$storageId = az storage account show --name $StorageAccount --resource-group $ResourceGroup --query id -o tsv
+az role assignment create --assignee-object-id $spObjectId --assignee-principal-type ServicePrincipal --role "User Access Administrator" --scope $storageId --output none
 
 Write-Host "Service Principal created (clientId: $clientId)" -ForegroundColor Green
 
