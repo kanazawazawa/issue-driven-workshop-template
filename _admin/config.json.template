@@ -14,6 +14,7 @@
   "github": {
     "repoOwner": "<YOUR_GITHUB_ORG_OR_USERNAME>",
     "templateRepoFullName": "<OWNER/REPO — auto-detected from git origin by init-workshop.ps1>",
+    "templateBranch": "",
     "repoNamePrefix": "issue-driven-workshop",
     "visibility": "public"
   }

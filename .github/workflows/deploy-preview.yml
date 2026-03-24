@@ -6,6 +6,10 @@ on:
       - main
     types: [opened, synchronize, reopened, closed]
 
+concurrency:
+  group: preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   id-token: write
   contents: read
