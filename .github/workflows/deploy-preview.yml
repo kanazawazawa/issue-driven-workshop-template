@@ -73,6 +73,29 @@ jobs:
               --slot "$SLOT_NAME" \
               --use-32bit-worker-process false \
               --output none
+
+            echo "Enabling Managed Identity on slot..."
+            PRINCIPAL_ID=$(az webapp identity assign \
+              --name "$WEBAPP_NAME" \
+              --resource-group "$RESOURCE_GROUP" \
+              --slot "$SLOT_NAME" \
+              --query principalId -o tsv)
+
+            echo "Assigning Storage Table Data Contributor role..."
+            STORAGE_ID=$(az storage account show \
+              --name "$(az webapp config appsettings list \
+                --name "$WEBAPP_NAME" \
+                --resource-group "$RESOURCE_GROUP" \
+                --query "[?name=='AzureTableStorage__StorageAccountName'].value" -o tsv)" \
+              --resource-group "$RESOURCE_GROUP" \
+              --query id -o tsv)
+
+            az role assignment create \
+              --assignee-object-id "$PRINCIPAL_ID" \
+              --assignee-principal-type ServicePrincipal \
+              --role "Storage Table Data Contributor" \
+              --scope "$STORAGE_ID" \
+              --output none
           else
             echo "Slot $SLOT_NAME already exists, skipping creation"
           fi
