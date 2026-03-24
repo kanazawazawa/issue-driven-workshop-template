@@ -2,8 +2,6 @@ name: Deploy Preview Environment
 
 on:
   pull_request:
-    branches:
-      - main
     types: [opened, synchronize, reopened, closed]
 
 concurrency:
@@ -45,59 +43,65 @@ jobs:
         run: |
           TTL_EXPIRE=$(date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ)
 
-          EXISTS=$(az webapp deployment slot list \
+          # Always (re)create slot with production config to ensure settings are synced
+          echo "Creating/recreating deployment slot: $SLOT_NAME (cloning config from production)"
+          az webapp deployment slot create \
             --name "$WEBAPP_NAME" \
             --resource-group "$RESOURCE_GROUP" \
-            --query "[?name=='${{ env.SLOT_NAME }}'].name" \
-            -o tsv)
+            --slot "$SLOT_NAME" \
+            --configuration-source "$WEBAPP_NAME"
 
-          if [ -z "$EXISTS" ]; then
-            echo "Creating deployment slot: $SLOT_NAME"
-            az webapp deployment slot create \
-              --name "$WEBAPP_NAME" \
+          echo "Configuring slot-specific app settings..."
+          az webapp config appsettings set \
+            --name "$WEBAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --slot "$SLOT_NAME" \
+            --slot-settings "AzureTableStorage__TableName=ExpensesPR${PR_NUM}" \
+            --output none
+
+          echo "Configuring 64-bit platform..."
+          az webapp config set \
+            --name "$WEBAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --slot "$SLOT_NAME" \
+            --use-32bit-worker-process false \
+            --output none
+
+          # Enable system-assigned managed identity on the slot and grant Storage Table Data Contributor
+          echo "Enabling managed identity on slot and granting RBAC..."
+          SLOT_PRINCIPAL_ID=$(az webapp identity assign \
+            --name "$WEBAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --slot "$SLOT_NAME" \
+            --query principalId -o tsv)
+
+          # Get the storage account name from the slot's app settings
+          STORAGE_ACCOUNT=$(az webapp config appsettings list \
+            --name "$WEBAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --slot "$SLOT_NAME" \
+            --query "[?name=='AzureTableStorage__StorageAccountName'].value" -o tsv)
+
+          if [ -n "$STORAGE_ACCOUNT" ] && [ -n "$SLOT_PRINCIPAL_ID" ]; then
+            STORAGE_RESOURCE_ID=$(az storage account show \
+              --name "$STORAGE_ACCOUNT" \
               --resource-group "$RESOURCE_GROUP" \
-              --slot "$SLOT_NAME"
+              --query id -o tsv 2>/dev/null || true)
 
-            echo "Configuring slot app settings..."
-            az webapp config appsettings set \
-              --name "$WEBAPP_NAME" \
-              --resource-group "$RESOURCE_GROUP" \
-              --slot "$SLOT_NAME" \
-              --slot-settings "AzureTableStorage__TableName=ExpensesPR${PR_NUM}" \
-              --output none
-
-            echo "Configuring 64-bit platform..."
-            az webapp config set \
-              --name "$WEBAPP_NAME" \
-              --resource-group "$RESOURCE_GROUP" \
-              --slot "$SLOT_NAME" \
-              --use-32bit-worker-process false \
-              --output none
-
-            echo "Enabling Managed Identity on slot..."
-            PRINCIPAL_ID=$(az webapp identity assign \
-              --name "$WEBAPP_NAME" \
-              --resource-group "$RESOURCE_GROUP" \
-              --slot "$SLOT_NAME" \
-              --query principalId -o tsv)
-
-            echo "Assigning Storage Table Data Contributor role..."
-            STORAGE_ID=$(az storage account show \
-              --name "$(az webapp config appsettings list \
-                --name "$WEBAPP_NAME" \
-                --resource-group "$RESOURCE_GROUP" \
-                --query "[?name=='AzureTableStorage__StorageAccountName'].value" -o tsv)" \
-              --resource-group "$RESOURCE_GROUP" \
-              --query id -o tsv)
-
-            az role assignment create \
-              --assignee-object-id "$PRINCIPAL_ID" \
-              --assignee-principal-type ServicePrincipal \
-              --role "Storage Table Data Contributor" \
-              --scope "$STORAGE_ID" \
-              --output none
+            if [ -n "$STORAGE_RESOURCE_ID" ]; then
+              az role assignment create \
+                --assignee-object-id "$SLOT_PRINCIPAL_ID" \
+                --assignee-principal-type ServicePrincipal \
+                --role "Storage Table Data Contributor" \
+                --scope "$STORAGE_RESOURCE_ID" \
+                2>/dev/null || echo "RBAC assignment already exists or failed (non-fatal)"
+            else
+              echo "Warning: Could not find storage account '$STORAGE_ACCOUNT' in resource group '$RESOURCE_GROUP'"
+            fi
           else
-            echo "Slot $SLOT_NAME already exists, skipping creation"
+            echo "Warning: Could not determine storage account name or slot principal ID"
+            echo "  STORAGE_ACCOUNT=$STORAGE_ACCOUNT"
+            echo "  SLOT_PRINCIPAL_ID=$SLOT_PRINCIPAL_ID"
           fi
 
           # Update TTL tag on the slot (reset on every push)
