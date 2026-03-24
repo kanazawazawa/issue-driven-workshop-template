@@ -17,11 +17,16 @@ permissions:
 
 env:
   DOTNET_VERSION: '8.0.x'
+  WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+  RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
 
 jobs:
   deploy-preview:
     if: github.event.action != 'closed'
     runs-on: ubuntu-latest
+
+    env:
+      SLOT_NAME: pr-${{ github.event.pull_request.number }}
 
     steps:
       - name: Checkout code
@@ -35,40 +40,36 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Create or update deployment slot
+        env:
+          PR_NUM: ${{ github.event.pull_request.number }}
         run: |
-          PR_NUM=${{ github.event.pull_request.number }}
-          SLOT_NAME="pr-${PR_NUM}"
-          WEBAPP_NAME="${{ vars.AZURE_WEBAPP_NAME }}"
-          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
           TTL_EXPIRE=$(date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ)
 
-          # Check if slot already exists
           EXISTS=$(az webapp deployment slot list \
             --name "$WEBAPP_NAME" \
-            --resource-group "$RG" \
-            --query "[?name=='${SLOT_NAME}'].name" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "[?name=='${{ env.SLOT_NAME }}'].name" \
             -o tsv)
 
           if [ -z "$EXISTS" ]; then
             echo "Creating deployment slot: $SLOT_NAME"
             az webapp deployment slot create \
               --name "$WEBAPP_NAME" \
-              --resource-group "$RG" \
+              --resource-group "$RESOURCE_GROUP" \
               --slot "$SLOT_NAME"
 
             echo "Configuring slot app settings..."
             az webapp config appsettings set \
               --name "$WEBAPP_NAME" \
-              --resource-group "$RG" \
+              --resource-group "$RESOURCE_GROUP" \
               --slot "$SLOT_NAME" \
-              --slot-settings \
-                "AzureTableStorage__TableName=ExpensesPR${PR_NUM}" \
+              --slot-settings "AzureTableStorage__TableName=ExpensesPR${PR_NUM}" \
               --output none
 
             echo "Configuring 64-bit platform..."
             az webapp config set \
               --name "$WEBAPP_NAME" \
-              --resource-group "$RG" \
+              --resource-group "$RESOURCE_GROUP" \
               --slot "$SLOT_NAME" \
               --use-32bit-worker-process false \
               --output none
@@ -79,12 +80,10 @@ jobs:
           # Update TTL tag on the slot (reset on every push)
           az webapp deployment slot create \
             --name "$WEBAPP_NAME" \
-            --resource-group "$RG" \
+            --resource-group "$RESOURCE_GROUP" \
             --slot "$SLOT_NAME" \
             --tags "Environment=preview" "PullRequest=${PR_NUM}" "TTLExpire=${TTL_EXPIRE}" \
             2>/dev/null || true
-
-          echo "SLOT_NAME=$SLOT_NAME" >> "$GITHUB_ENV"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -103,7 +102,7 @@ jobs:
       - name: Deploy to preview slot
         uses: azure/webapps-deploy@v3
         with:
-          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          app-name: ${{ env.WEBAPP_NAME }}
           slot-name: ${{ env.SLOT_NAME }}
           package: ./publish
 
@@ -112,8 +111,8 @@ jobs:
         with:
           script: |
             const prNum = context.payload.pull_request.number;
-            const webappName = process.env.WEBAPP_NAME || '${{ vars.AZURE_WEBAPP_NAME }}';
-            const slotName = process.env.SLOT_NAME;
+            const webappName = '${{ env.WEBAPP_NAME }}';
+            const slotName = '${{ env.SLOT_NAME }}';
             const previewUrl = `https://${webappName}-${slotName}.azurewebsites.net`;
             const body = [
               '## 🔍 Preview Environment',
@@ -151,11 +150,14 @@ jobs:
         run: |
           echo "## 🔍 Preview Deployed!" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**URL:** https://${{ vars.AZURE_WEBAPP_NAME }}-${{ env.SLOT_NAME }}.azurewebsites.net" >> "$GITHUB_STEP_SUMMARY"
+          echo "**URL:** https://${{ env.WEBAPP_NAME }}-${{ env.SLOT_NAME }}.azurewebsites.net" >> "$GITHUB_STEP_SUMMARY"
 
   cleanup-preview:
     if: github.event.action == 'closed'
     runs-on: ubuntu-latest
+
+    env:
+      SLOT_NAME: pr-${{ github.event.pull_request.number }}
 
     steps:
       - name: Azure Login (OIDC)
@@ -167,17 +169,12 @@ jobs:
 
       - name: Delete deployment slot
         run: |
-          PR_NUM=${{ github.event.pull_request.number }}
-          SLOT_NAME="pr-${PR_NUM}"
-          WEBAPP_NAME="${{ vars.AZURE_WEBAPP_NAME }}"
-          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
-
           echo "Deleting deployment slot: $SLOT_NAME"
           az webapp deployment slot delete \
             --name "$WEBAPP_NAME" \
-            --resource-group "$RG" \
+            --resource-group "$RESOURCE_GROUP" \
             --slot "$SLOT_NAME" || true
 
           echo "## 🧹 Preview Environment Cleaned Up" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Deleted slot **${SLOT_NAME}** for PR #${PR_NUM}." >> "$GITHUB_STEP_SUMMARY"
+          echo "Deleted slot **${SLOT_NAME}** for PR #${{ github.event.pull_request.number }}." >> "$GITHUB_STEP_SUMMARY"

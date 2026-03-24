@@ -5,9 +5,17 @@ on:
     - cron: '*/15 * * * *'
   workflow_dispatch:
 
+concurrency:
+  group: ttl-cleanup
+  cancel-in-progress: true
+
 permissions:
   id-token: write
   contents: read
+
+env:
+  WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+  RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
 
 jobs:
   cleanup-expired:
@@ -23,8 +31,6 @@ jobs:
 
       - name: Find and delete expired preview slots
         run: |
-          WEBAPP_NAME="${{ vars.AZURE_WEBAPP_NAME }}"
-          RG="${{ vars.AZURE_RESOURCE_GROUP }}"
           NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           DELETED=0
           KEPT=0
@@ -33,10 +39,9 @@ jobs:
           echo "Current time (UTC): $NOW"
           echo ""
 
-          # List all deployment slots
           SLOTS=$(az webapp deployment slot list \
             --name "$WEBAPP_NAME" \
-            --resource-group "$RG" \
+            --resource-group "$RESOURCE_GROUP" \
             --query "[].name" \
             -o tsv 2>/dev/null || true)
 
@@ -46,10 +51,9 @@ jobs:
           fi
 
           for SLOT in $SLOTS; do
-            # Get TTLExpire tag for this slot
             TTL_EXPIRE=$(az webapp show \
               --name "$WEBAPP_NAME" \
-              --resource-group "$RG" \
+              --resource-group "$RESOURCE_GROUP" \
               --slot "$SLOT" \
               --query "tags.TTLExpire" \
               -o tsv 2>/dev/null || true)
@@ -63,7 +67,7 @@ jobs:
               echo "🗑️  Deleting expired slot: $SLOT (expired: $TTL_EXPIRE)"
               az webapp deployment slot delete \
                 --name "$WEBAPP_NAME" \
-                --resource-group "$RG" \
+                --resource-group "$RESOURCE_GROUP" \
                 --slot "$SLOT" || true
               DELETED=$((DELETED + 1))
             else
