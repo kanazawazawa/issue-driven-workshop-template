@@ -194,23 +194,6 @@ $clientId = $sp.clientId
 
 Write-Host "Service Principal created (clientId: $clientId)" -ForegroundColor Green
 
-# Configure OIDC federated credentials for GitHub Actions
-Write-Host "Configuring OIDC federated credentials..." -ForegroundColor Yellow
-$appObjectId = az ad app show --id $clientId --query id -o tsv
-
-# Federated credential for pull_request events
-$prCredentialFile = Join-Path $env:TEMP "oidc-pr-credential-$suffix.json"
-@{
-    name = "github-pr-$suffix"
-    issuer = "https://token.actions.githubusercontent.com"
-    subject = "repo:$RepoOwner/*:pull_request"
-    audiences = @("api://AzureADTokenExchange")
-} | ConvertTo-Json | Set-Content -Path $prCredentialFile -Encoding utf8
-
-az ad app federated-credential create --id $appObjectId --parameters "@$prCredentialFile" --output none
-Remove-Item $prCredentialFile -ErrorAction SilentlyContinue
-Write-Host "OIDC federated credential configured for pull_request events" -ForegroundColor Green
-
 # ===========================================
 # Step 3: Generate config.json
 # ===========================================

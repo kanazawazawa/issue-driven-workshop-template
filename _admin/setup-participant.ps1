@@ -174,7 +174,20 @@ if ($templateBranch) {
 
     az ad app federated-credential create --id $appObjectId --parameters "@$credentialFile" --output none
     Remove-Item $credentialFile -ErrorAction SilentlyContinue
-    Write-Host "OIDC federated credential configured" -ForegroundColor Green
+    Write-Host "OIDC federated credential configured (main)" -ForegroundColor Green
+
+    Write-Host "Adding OIDC federated credential for $repoOwner/$newRepoName pull_request..." -ForegroundColor Yellow
+    $prCredentialFile = Join-Path $env:TEMP "oidc-pr-$newRepoName.json"
+    @{
+        name = "github-pr-$newRepoName"
+        issuer = "https://token.actions.githubusercontent.com"
+        subject = "repo:$repoOwner/$($newRepoName):pull_request"
+        audiences = @("api://AzureADTokenExchange")
+    } | ConvertTo-Json | Set-Content -Path $prCredentialFile -Encoding utf8
+
+    az ad app federated-credential create --id $appObjectId --parameters "@$prCredentialFile" --output none
+    Remove-Item $prCredentialFile -ErrorAction SilentlyContinue
+    Write-Host "OIDC federated credential configured (pull_request)" -ForegroundColor Green
 
     # --- Now push to trigger deployment ---
     Write-Host ""
@@ -255,7 +268,20 @@ if ($templateBranch) {
 
     az ad app federated-credential create --id $appObjectId --parameters "@$credentialFile" --output none
     Remove-Item $credentialFile -ErrorAction SilentlyContinue
-    Write-Host "OIDC federated credential configured" -ForegroundColor Green
+    Write-Host "OIDC federated credential configured (main)" -ForegroundColor Green
+
+    Write-Host "Adding OIDC federated credential for $repoOwner/$newRepoName pull_request..." -ForegroundColor Yellow
+    $prCredentialFile = Join-Path $env:TEMP "oidc-pr-$newRepoName.json"
+    @{
+        name = "github-pr-$newRepoName"
+        issuer = "https://token.actions.githubusercontent.com"
+        subject = "repo:$repoOwner/$($newRepoName):pull_request"
+        audiences = @("api://AzureADTokenExchange")
+    } | ConvertTo-Json | Set-Content -Path $prCredentialFile -Encoding utf8
+
+    az ad app federated-credential create --id $appObjectId --parameters "@$prCredentialFile" --output none
+    Remove-Item $prCredentialFile -ErrorAction SilentlyContinue
+    Write-Host "OIDC federated credential configured (pull_request)" -ForegroundColor Green
 
     # --- Trigger deployment ---
     Write-Host ""
