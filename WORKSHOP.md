@@ -9,15 +9,17 @@ graph TD
     A[👤 参加者がIssueを作成] --> B[👤 Copilotをアサイン]
     B --> C[🤖 Copilotが専用ブランチで修正]
     C --> D[🤖 Pull Requestが作成される]
-    D --> E[👤 Workflowを Approve]
-    E --> F[🤖 Azure App Service にデプロイ]
-    
+    D --> E[🤖 プレビュー環境に自動デプロイ]
+    E --> F[👤 PR をレビュー・マージ]
+    F --> G[🤖 本番環境に自動デプロイ]
+
     style A fill:#fff3cd,stroke:#ffc107
     style B fill:#fff3cd,stroke:#ffc107
-    style E fill:#fff3cd,stroke:#ffc107
+    style F fill:#fff3cd,stroke:#ffc107
     style C fill:#d1e7dd,stroke:#198754
     style D fill:#d1e7dd,stroke:#198754
-    style F fill:#d1e7dd,stroke:#198754
+    style E fill:#d1e7dd,stroke:#198754
+    style G fill:#d1e7dd,stroke:#198754
 ```
 
 - 👤 **黄色**: 参加者が手動で行う操作
@@ -27,23 +29,24 @@ graph TD
 2. **Copilot アサイン**: Issue に Copilot をアサイン
 3. **自動修正**: Copilot が専用ブランチを作成し、コードを修正
 4. **PR 作成**: 修正完了後、Pull Request が自動作成される
-5. **デプロイ**: Workflow を Approve すると Azure App Service にデプロイ
+5. **プレビューデプロイ**: PR 作成時に Deployment Slot（プレビュー環境）に自動デプロイされ、PR コメントにプレビュー URL が通知される
+6. **本番デプロイ**: PR を `main` にマージすると本番環境に自動デプロイ
 
-## ⚠️ 並行デプロイ時の注意（後勝ち）
+## 🔍 PR プレビュー環境
 
-複数の参加者が同時に Workflow を Approve してデプロイすると、**同じ Azure 環境に対して後からデプロイした内容が反映されます**（後勝ち）。
+Pull Request を作成すると、Azure Deployment Slots を使ったプレビュー環境が自動的に作成されます。
 
-```
-参加者A: デプロイ開始 ────────> 完了（反映）
-参加者B:     デプロイ開始 ────────> 完了（上書き）← この内容が最終的に反映
-```
+- **プレビュー URL**: `https://{webapp-name}-pr-{PR番号}.azurewebsites.net`
+- **データ分離**: PR ごとに専用の Storage Table（`ExpensesPR{番号}`）を使用
+- **自動クリーンアップ**: PR をクローズすると Slot が自動削除される
 
-今回のワークショップでは、シンプル化のためこの動作を許容しています。
+これにより、複数の参加者が同時に PR を作成しても、**それぞれの変更を独立したプレビュー環境で確認**できます。
 
-> 💡 **本番環境では？**  
-> 以下のような方法で並行デプロイの競合を回避できます。
-> - **デプロイスロット**: ステージングスロットにデプロイ → 検証後にスワップ
-> - **環境の分離**: 開発者ごと・ブランチごとに別の App Service を用意
+## 並行デプロイについて
+
+PR プレビュー環境により、各参加者の変更は独立した Deployment Slot にデプロイされるため、互いに影響しません。
+
+本番環境（`main` ブランチ）へのデプロイは、PR をマージしたタイミングで実行されます。複数の PR を同時にマージした場合は `concurrency` 設定により重複実行が自動キャンセルされ、最新のデプロイのみが反映されます。
 
 ## 全員の変更をまとめてデプロイする場合
 
@@ -56,19 +59,20 @@ graph LR
         B[copilot/fix-456]
         C[copilot/fix-789]
     end
-    
+
     A --> M[main]
     B --> M
     C --> M
-    M --> D[手動で Workflow 実行]
+    M --> D[自動デプロイ]
     D --> E[Azure App Service]
 ```
 
 1. **各 PR を `main` ブランチにマージ**
    - コンフリクトがある場合は解消してからマージ
+   - マージのたびに本番デプロイが自動実行される
 
-2. **Workflow を手動実行**
-   - GitHub → **Actions** タブ → **Deploy to Azure** を選択
+2. **手動で再実行する場合**
+   - GitHub → **Actions** タブ → **Deploy to Azure App Service** を選択
    - **Run workflow** ボタンをクリック
    - ブランチ: `main` を選択して実行
 

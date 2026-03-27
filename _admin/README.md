@@ -37,8 +37,9 @@ cd _admin
 これだけで以下がすべて自動実行されます：
 
 1. Azure リソース作成（リソースグループ、App Service プラン、ストレージアカウント）
-2. 接続文字列を取得して `config.json` を自動生成
-3. 参加者ごとに Web App + リポジトリ + シークレット設定 + 初回デプロイ
+2. Service Principal 作成・ OIDC フェデレーション設定
+3. `config.json` を自動生成
+4. 参加者ごとに Web App + リポジトリ + OIDC 資格情報 + 初回デプロイ
 
 > 💡 参加者リポジトリからは `_admin/` フォルダが自動的に削除されます。参加者にはノイズにならないよう配慮されています。
 
@@ -49,7 +50,7 @@ Workshop Setup Plan
 ========================================
 
 Participants     : 5
-Location         : swedencentral
+Location         : japaneast
 Resource Group   : rg-workshop-et1xz0        ← ランダムサフィックス
 App Service Plan : plan-workshop-et1xz0 (P0v4)
 Storage Account  : saworkshopet1xz0
@@ -71,6 +72,7 @@ Proceed? (yes/no):
 | Resource Group | `rg-workshop-{suffix}` | `rg-workshop-et1xz0` |
 | App Service Plan | `plan-workshop-{suffix}` | `plan-workshop-et1xz0` |
 | Storage Account | `saworkshop{suffix}` | `saworkshopet1xz0` |
+| Service Principal | `sp-workshop-{suffix}` | `sp-workshop-et1xz0` |
 | Web App | `app-workshop-{suffix}-{Number}` | `app-workshop-et1xz0-01` |
 | GitHub リポジトリ | `workshop-{suffix}-{Number}` | `workshop-et1xz0-01` |
 | Table | `Expenses{Number}` | `Expenses01` |
@@ -105,8 +107,9 @@ Proceed? (yes/no):
 
 | ファイル | 用途 | 説明 |
 |----------|------|------|
-| **`init-workshop.ps1`** | **🚀 全自動セットアップ** | Azure 基盤作成 → config 生成 → 全参加者環境構築 |
-| **`destroy-workshop.ps1`** | **🧹 全自動削除** | 全参加者環境 + Azure 基盤を一括削除 |
+| **`init-workshop.ps1`** | **🚀 全自動セットアップ** | Azure 基盤作成 → OIDC 設定 → config 生成 → 全参加者環境構築 |
+| **`destroy-workshop.ps1`** | **🧹 全自動削除** | 全参加者環境 + Service Principal + Azure 基盤を一括削除 |
+| **`recover-workshop.ps1`** | **🔧 復旧** | Storage Account の publicNetworkAccess 復元、全 Web App + Slot の再起動 |
 | `setup-participant.ps1` | 受講者環境を個別作成 | `config.json` が必要 |
 | `cleanup-participant.ps1` | 受講者環境を個別削除 | `config.json` が必要 |
 | `create-workshop-webapp.ps1` | Web App のみ作成 | `config.json` が必要 |
@@ -128,7 +131,7 @@ Copy-Item config.json.template config.json
 # config.json を編集
 ```
 
-> ⚠️ `config.json` にはシークレット（接続文字列）が含まれるため、`.gitignore` で除外されています。
+> ⚠️ `config.json` には OIDC 資格情報（クライアント ID 等）が含まれるため、`.gitignore` で除外されています。
 
 ---
 
@@ -139,7 +142,10 @@ Copy-Item config.json.template config.json
 | 種類 | 名前 | 内容 |
 |------|------|------|
 | Variable | `AZURE_WEBAPP_NAME` | Web App の名前 |
-| Secret | `AZURE_WEBAPP_PUBLISH_PROFILE` | 発行プロファイル（XML） |
+| Variable | `AZURE_RESOURCE_GROUP` | リソースグループ名 |
+| Variable | `AZURE_CLIENT_ID` | Service Principal のクライアント ID |
+| Variable | `AZURE_TENANT_ID` | Azure AD テナント ID |
+| Variable | `AZURE_SUBSCRIPTION_ID` | Azure サブスクリプション ID |
 
 ---
 
@@ -147,8 +153,9 @@ Copy-Item config.json.template config.json
 
 1. **テーブル名にハイフン不可**: Azure Table Storage のテーブル名には英数字のみ使用可能
 2. **Web App 名はグローバルで一意**: ランダムサフィックスにより自動回避
-3. **config.json は Git 管理外**: シークレットを含むため `.gitignore` で除外済み
+3. **config.json は Git 管理外**: OIDC 資格情報を含むため `.gitignore` で除外済み
 4. **テンプレートリポジトリは事前に準備が必要**: Settings で "Template repository" を有効化
+5. **Deployment Slots には Standard (S1) 以上の SKU が必要**: PR プレビュー環境を使う場合、B1 では動作しません
 
 ---
 
