@@ -1,0 +1,207 @@
+name: Deploy Preview Environment
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+concurrency:
+  group: preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+  RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+
+jobs:
+  deploy-preview:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+
+    env:
+      SLOT_NAME: pr-${{ github.event.pull_request.number }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Create or update deployment slot
+        env:
+          PR_NUM: ${{ github.event.pull_request.number }}
+        run: |
+          TTL_EXPIRE=$(date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ)
+
+          # Always (re)create slot with production config to ensure settings are synced
+          echo "Creating/recreating deployment slot: $SLOT_NAME (cloning config from production)"
+          az webapp deployment slot create \
+            --name "$WEBAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --slot "$SLOT_NAME" \
+            --configuration-source "$WEBAPP_NAME"
+
+          echo "Configuring slot-specific app settings..."
+          az webapp config appsettings set \
+            --name "$WEBAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --slot "$SLOT_NAME" \
+            --slot-settings "AzureTableStorage__TableName=ExpensesPR${PR_NUM}" \
+            --output none
+
+          echo "Configuring 64-bit platform..."
+          az webapp config set \
+            --name "$WEBAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --slot "$SLOT_NAME" \
+            --use-32bit-worker-process false \
+            --output none
+
+          # Enable system-assigned managed identity on the slot and grant Storage Table Data Contributor
+          echo "Enabling managed identity on slot and granting RBAC..."
+          SLOT_PRINCIPAL_ID=$(az webapp identity assign \
+            --name "$WEBAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --slot "$SLOT_NAME" \
+            --query principalId -o tsv)
+
+          # Get the storage account name from the slot's app settings
+          STORAGE_ACCOUNT=$(az webapp config appsettings list \
+            --name "$WEBAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --slot "$SLOT_NAME" \
+            --query "[?name=='AzureTableStorage__StorageAccountName'].value" -o tsv)
+
+          if [ -n "$STORAGE_ACCOUNT" ] && [ -n "$SLOT_PRINCIPAL_ID" ]; then
+            STORAGE_RESOURCE_ID=$(az storage account show \
+              --name "$STORAGE_ACCOUNT" \
+              --resource-group "$RESOURCE_GROUP" \
+              --query id -o tsv 2>/dev/null || true)
+
+            if [ -n "$STORAGE_RESOURCE_ID" ]; then
+              az role assignment create \
+                --assignee-object-id "$SLOT_PRINCIPAL_ID" \
+                --assignee-principal-type ServicePrincipal \
+                --role "Storage Table Data Contributor" \
+                --scope "$STORAGE_RESOURCE_ID" \
+                2>/dev/null || echo "RBAC assignment already exists or failed (non-fatal)"
+            else
+              echo "Warning: Could not find storage account '$STORAGE_ACCOUNT' in resource group '$RESOURCE_GROUP'"
+            fi
+          else
+            echo "Warning: Could not determine storage account name or slot principal ID"
+            echo "  STORAGE_ACCOUNT=$STORAGE_ACCOUNT"
+            echo "  SLOT_PRINCIPAL_ID=$SLOT_PRINCIPAL_ID"
+          fi
+
+          # Update TTL tag on the slot (reset on every push)
+          az webapp deployment slot create \
+            --name "$WEBAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --slot "$SLOT_NAME" \
+            --tags "Environment=preview" "PullRequest=${PR_NUM}" "TTLExpire=${TTL_EXPIRE}" \
+            2>/dev/null || true
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Publish
+        run: dotnet publish IssueDrivenWorkshop.csproj --configuration Release --no-build --output ./publish
+
+      - name: Deploy to preview slot
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.WEBAPP_NAME }}
+          slot-name: ${{ env.SLOT_NAME }}
+          package: ./publish
+
+      - name: Comment PR with preview URL
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNum = context.payload.pull_request.number;
+            const webappName = '${{ env.WEBAPP_NAME }}';
+            const slotName = '${{ env.SLOT_NAME }}';
+            const previewUrl = `https://${webappName}-${slotName}.azurewebsites.net`;
+            const body = [
+              '## 🔍 Preview Environment',
+              '',
+              `**URL:** ${previewUrl}`,
+              '',
+              '> This environment will be automatically destroyed 1 hour after the last push, or when the PR is closed.',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNum,
+            });
+            const existing = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Preview Environment'));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNum,
+                body,
+              });
+            }
+
+      - name: Show preview URL
+        run: |
+          echo "## 🔍 Preview Deployed!" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**URL:** https://${{ env.WEBAPP_NAME }}-${{ env.SLOT_NAME }}.azurewebsites.net" >> "$GITHUB_STEP_SUMMARY"
+
+  cleanup-preview:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+
+    env:
+      SLOT_NAME: pr-${{ github.event.pull_request.number }}
+
+    steps:
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Delete deployment slot
+        run: |
+          echo "Deleting deployment slot: $SLOT_NAME"
+          az webapp deployment slot delete \
+            --name "$WEBAPP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --slot "$SLOT_NAME" || true
+
+          echo "## 🧹 Preview Environment Cleaned Up" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Deleted slot **${SLOT_NAME}** for PR #${{ github.event.pull_request.number }}." >> "$GITHUB_STEP_SUMMARY"

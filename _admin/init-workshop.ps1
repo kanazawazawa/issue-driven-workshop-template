@@ -24,7 +24,8 @@ param(
     [string]$TemplateRepoFullName = "",
     [string]$RepoNamePrefix = "",
     [string]$Visibility = "public",
-    [string]$Sku = "P0v4"
+    [string]$Sku = "P0v4",
+    [string]$TemplateBranch = ""
 )
 
 Set-StrictMode -Version Latest
@@ -116,6 +117,9 @@ Write-Host "Storage Account  : $StorageAccount" -ForegroundColor White
 Write-Host "Web App Prefix   : $WebAppNamePrefix" -ForegroundColor White
 Write-Host "Repo Owner       : $RepoOwner" -ForegroundColor White
 Write-Host "Template Repo    : $TemplateRepoFullName" -ForegroundColor White
+if ($TemplateBranch) {
+    Write-Host "Template Branch  : $TemplateBranch" -ForegroundColor White
+}
 Write-Host "Repo Name Prefix : $RepoNamePrefix" -ForegroundColor White
 Write-Host "Visibility       : $Visibility" -ForegroundColor White
 Write-Host ""
@@ -172,11 +176,35 @@ Invoke-AzCommand -Description "Creating storage account: $StorageAccount" -Comma
 Write-Host "Azure resources created" -ForegroundColor Green
 
 # ===========================================
-# Step 2: Generate config.json
+# Step 2: Create Service Principal with OIDC
 # ===========================================
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Step 2: Generating config.json" -ForegroundColor Cyan
+Write-Host "Step 2: Creating Service Principal for OIDC" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+
+$spName = "sp-workshop-$suffix"
+$subscriptionId = (az account show --query id -o tsv)
+$tenantId = (az account show --query tenantId -o tsv)
+
+Write-Host "Creating Service Principal: $spName" -ForegroundColor Yellow
+$spJson = az ad sp create-for-rbac --name $spName --role Contributor --scopes "/subscriptions/$subscriptionId/resourceGroups/$ResourceGroup" --query "{clientId: appId, objectId: id}" -o json
+$sp = $spJson | ConvertFrom-Json
+$clientId = $sp.clientId
+
+# Grant User Access Administrator on Storage Account scope so the SP can assign RBAC roles to slot Managed Identities
+$spObjectId = az ad sp show --id $clientId --query id -o tsv
+$storageId = az storage account show --name $StorageAccount --resource-group $ResourceGroup --query id -o tsv
+az role assignment create --assignee-object-id $spObjectId --assignee-principal-type ServicePrincipal --role "User Access Administrator" --scope $storageId --output none
+
+Write-Host "Service Principal created (clientId: $clientId)" -ForegroundColor Green
+
+# ===========================================
+# Step 3: Generate config.json
+# ===========================================
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "Step 3: Generating config.json" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
 $config = @{
@@ -187,9 +215,15 @@ $config = @{
         webAppNamePrefix = $WebAppNamePrefix
         tableNamePrefix  = "Expenses"
     }
+    oidc = @{
+        clientId       = $clientId
+        tenantId       = $tenantId
+        subscriptionId = $subscriptionId
+    }
     github = @{
         repoOwner            = $RepoOwner
         templateRepoFullName = $TemplateRepoFullName
+        templateBranch       = $TemplateBranch
         repoNamePrefix       = $RepoNamePrefix
         visibility   = $Visibility
     }
@@ -200,11 +234,11 @@ $config | ConvertTo-Json -Depth 3 | Set-Content -Path $configPath -Encoding UTF8
 Write-Host "config.json generated" -ForegroundColor Green
 
 # ===========================================
-# Step 3: Setup Each Participant
+# Step 4: Setup Each Participant
 # ===========================================
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Step 3: Setting Up Participants" -ForegroundColor Cyan
+Write-Host "Step 4: Setting Up Participants" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
 $setupScript = Join-Path $PSScriptRoot "setup-participant.ps1"

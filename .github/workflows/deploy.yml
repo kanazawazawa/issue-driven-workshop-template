@@ -1,21 +1,36 @@
-﻿name: Deploy to Azure App Service
+name: Deploy to Azure App Service
 
 on:
-  pull_request:
+  push:
     branches:
       - main
   workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
 
 env:
   DOTNET_VERSION: '8.0.x'
 
 jobs:
   build-and-deploy:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -35,11 +50,10 @@ jobs:
         uses: azure/webapps-deploy@v3
         with:
           app-name: ${{ vars.AZURE_WEBAPP_NAME }}
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
           package: ./publish
 
       - name: Show deployed URL
         run: |
-          echo "## 🚀 Deployment Complete!" >> $env:GITHUB_STEP_SUMMARY
-          echo "" >> $env:GITHUB_STEP_SUMMARY
-          echo "**URL:** https://${{ vars.AZURE_WEBAPP_NAME }}.azurewebsites.net" >> $env:GITHUB_STEP_SUMMARY
+          echo "## 🚀 Deployment Complete!" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**URL:** https://${{ vars.AZURE_WEBAPP_NAME }}.azurewebsites.net" >> "$GITHUB_STEP_SUMMARY"

@@ -53,11 +53,17 @@ $appServicePlan = $config.azure.appServicePlan
 $webAppName = "$($config.azure.webAppNamePrefix)-$Number"
 $storageAccount = $config.azure.storageAccount
 
+# OIDC (for PR preview environments)
+$clientId = $config.oidc.clientId
+$tenantId = $config.oidc.tenantId
+$subscriptionId = $config.oidc.subscriptionId
+
 # App Settings
 $tableName = "$($config.azure.tableNamePrefix)$Number"
 
 # GitHub
 $templateRepoFullName = $config.github.templateRepoFullName
+$templateBranch = if ($config.github.templateBranch) { $config.github.templateBranch } else { "" }
 $newRepoName = "$($config.github.repoNamePrefix)-$Number"
 $repoOwner = $config.github.repoOwner
 $visibility = if ($config.github.visibility) { "--$($config.github.visibility)" } else { "--public" }
@@ -105,81 +111,191 @@ Invoke-AzCommand -Description "Assigning role" -Command {
 Write-Host "App settings and Managed Identity configured" -ForegroundColor Green
 
 # ===========================================
-# Step 3: Get Publish Profile
+# Step 3: Create Repository & Configure Variables
 # ===========================================
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Step 3: Getting Publish Profile" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-
-$publishProfile = (Invoke-AzCommand -Description "Getting publish profile" -Command {
-    az webapp deployment list-publishing-profiles --name $webAppName --resource-group $resourceGroup --xml
-}) | Select-Object -Last 1
-Write-Host "Publish profile retrieved" -ForegroundColor Green
-
-# ===========================================
-# Step 4: Create Repository from Template
-# ===========================================
-Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Step 4: Creating Repository from Template" -ForegroundColor Cyan
+Write-Host "Step 3: Creating Repository from Template" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
 Write-Host "Creating repository: $repoOwner/$newRepoName" -ForegroundColor Yellow
-gh repo create "$repoOwner/$newRepoName" --template "$templateRepoFullName" $visibility --clone=false
 
-# Wait for repository to be ready
-Write-Host "Waiting for repository to be ready..." -ForegroundColor Yellow
-Start-Sleep -Seconds 5
+if ($templateBranch) {
+    # Create empty repo first
+    gh repo create "$repoOwner/$newRepoName" $visibility --clone=false
+    Write-Host "Cloning template branch '$templateBranch'..." -ForegroundColor Yellow
 
-# ===========================================
-# Step 5: Remove _admin folder from participant repo
-# ===========================================
-Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Step 5: Removing _admin folder from participant repo" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
+    $cloneDir = Join-Path $env:TEMP "workshop-clone-$newRepoName-$(Get-Random)"
+    $pushDir = Join-Path $env:TEMP "workshop-push-$newRepoName-$(Get-Random)"
 
-$repoFullName = "$repoOwner/$newRepoName"
-$adminFiles = gh api "repos/$repoFullName/contents/_admin" --jq '.[].path' 2>$null
-if ($adminFiles) {
-    foreach ($filePath in $adminFiles) {
-        $sha = gh api "repos/$repoFullName/contents/$filePath" --jq '.sha'
-        gh api --method DELETE "repos/$repoFullName/contents/$filePath" -f message="Remove admin scripts (not needed for participants)" -f sha="$sha" --silent
+    git clone --branch $templateBranch --single-branch "https://github.com/$templateRepoFullName.git" $cloneDir
+
+    # Copy all files except _admin and .git to a fresh repo
+    New-Item -ItemType Directory -Path $pushDir | Out-Null
+    Get-ChildItem -Path $cloneDir -Force | Where-Object { $_.Name -notin @('.git', '_admin') } | ForEach-Object {
+        Copy-Item -Path $_.FullName -Destination $pushDir -Recurse -Force
     }
-    Write-Host "_admin folder removed from participant repo" -ForegroundColor Green
+
+    Push-Location $pushDir
+    git init --quiet
+    git add -A
+    git commit -m "Initial commit from template ($templateBranch)" --quiet
+    git remote add origin "https://github.com/$repoOwner/$newRepoName.git"
+    git branch -M main
+    # Do NOT push yet — set variables and credentials first so the push-triggered workflow can use them
+    Pop-Location
+
+    Remove-Item $cloneDir -Recurse -Force
+
+    # --- Set variables and credentials BEFORE push ---
+    Write-Host ""
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "Step 4: Setting GitHub Variables & OIDC Credential" -ForegroundColor Cyan
+    Write-Host "========================================" -ForegroundColor Cyan
+
+    Write-Host "Setting AZURE_WEBAPP_NAME (as variable)..." -ForegroundColor Yellow
+    gh variable set AZURE_WEBAPP_NAME --body $webAppName --repo "$repoOwner/$newRepoName"
+
+    Write-Host "Setting OIDC variables..." -ForegroundColor Yellow
+    gh variable set AZURE_RESOURCE_GROUP --body $resourceGroup --repo "$repoOwner/$newRepoName"
+    gh variable set AZURE_CLIENT_ID --body $clientId --repo "$repoOwner/$newRepoName"
+    gh variable set AZURE_TENANT_ID --body $tenantId --repo "$repoOwner/$newRepoName"
+    gh variable set AZURE_SUBSCRIPTION_ID --body $subscriptionId --repo "$repoOwner/$newRepoName"
+
+    Write-Host "Adding OIDC federated credential for $repoOwner/$newRepoName main branch..." -ForegroundColor Yellow
+    $appObjectId = az ad app show --id $clientId --query id -o tsv
+    $credentialFile = Join-Path $env:TEMP "oidc-main-$newRepoName.json"
+    @{
+        name = "github-main-$newRepoName"
+        issuer = "https://token.actions.githubusercontent.com"
+        subject = "repo:$repoOwner/$($newRepoName):ref:refs/heads/main"
+        audiences = @("api://AzureADTokenExchange")
+    } | ConvertTo-Json | Set-Content -Path $credentialFile -Encoding utf8
+
+    az ad app federated-credential create --id $appObjectId --parameters "@$credentialFile" --output none
+    Remove-Item $credentialFile -ErrorAction SilentlyContinue
+    Write-Host "OIDC federated credential configured (main)" -ForegroundColor Green
+
+    Write-Host "Adding OIDC federated credential for $repoOwner/$newRepoName pull_request..." -ForegroundColor Yellow
+    $prCredentialFile = Join-Path $env:TEMP "oidc-pr-$newRepoName.json"
+    @{
+        name = "github-pr-$newRepoName"
+        issuer = "https://token.actions.githubusercontent.com"
+        subject = "repo:$repoOwner/$($newRepoName):pull_request"
+        audiences = @("api://AzureADTokenExchange")
+    } | ConvertTo-Json | Set-Content -Path $prCredentialFile -Encoding utf8
+
+    az ad app federated-credential create --id $appObjectId --parameters "@$prCredentialFile" --output none
+    Remove-Item $prCredentialFile -ErrorAction SilentlyContinue
+    Write-Host "OIDC federated credential configured (pull_request)" -ForegroundColor Green
+
+    # --- Now push to trigger deployment ---
+    Write-Host ""
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "Step 5: Pushing to Repository (triggers deployment)" -ForegroundColor Cyan
+    Write-Host "========================================" -ForegroundColor Cyan
+
+    Push-Location $pushDir
+    git push -u origin main
+    Pop-Location
+    Remove-Item $pushDir -Recurse -Force
+    Write-Host "Push complete — deployment triggered via push event" -ForegroundColor Green
 } else {
-    Write-Host "_admin folder not found, skipping" -ForegroundColor Gray
+    gh repo create "$repoOwner/$newRepoName" --template "$templateRepoFullName" $visibility --clone=false
+
+    # Wait for repository to be ready
+    Write-Host "Waiting for repository to be ready..." -ForegroundColor Yellow
+    Start-Sleep -Seconds 5
+
+    # --- Remove _admin folder ---
+    Write-Host ""
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "Step 4: Removing _admin folder from participant repo" -ForegroundColor Cyan
+    Write-Host "========================================" -ForegroundColor Cyan
+
+    $repoFullName = "$repoOwner/$newRepoName"
+    $cloneDir = Join-Path $env:TEMP "workshop-cleanup-clone-$newRepoName-$(Get-Random)"
+    $pushDir = Join-Path $env:TEMP "workshop-cleanup-push-$newRepoName-$(Get-Random)"
+
+    git clone --depth 1 "https://github.com/$repoFullName.git" $cloneDir 2>$null
+
+    if (Test-Path (Join-Path $cloneDir "_admin")) {
+        New-Item -ItemType Directory -Path $pushDir | Out-Null
+        Get-ChildItem -Path $cloneDir -Force | Where-Object { $_.Name -notin @('.git', '_admin') } | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination $pushDir -Recurse -Force
+        }
+
+        Push-Location $pushDir
+        git init --quiet
+        git add -A
+        git commit -m "Initial commit from template" --quiet
+        git remote add origin "https://github.com/$repoFullName.git"
+        git branch -M main
+        git push -u origin main --force
+        Pop-Location
+
+        Remove-Item $pushDir -Recurse -Force
+        Write-Host "_admin folder excluded from participant repo" -ForegroundColor Green
+    } else {
+        Write-Host "_admin folder not found, skipping" -ForegroundColor Gray
+    }
+    Remove-Item $cloneDir -Recurse -Force
+
+    # --- Set variables and credentials ---
+    Write-Host ""
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "Step 5: Setting GitHub Variables & OIDC Credential" -ForegroundColor Cyan
+    Write-Host "========================================" -ForegroundColor Cyan
+
+    Write-Host "Setting AZURE_WEBAPP_NAME (as variable)..." -ForegroundColor Yellow
+    gh variable set AZURE_WEBAPP_NAME --body $webAppName --repo "$repoOwner/$newRepoName"
+
+    Write-Host "Setting OIDC variables..." -ForegroundColor Yellow
+    gh variable set AZURE_RESOURCE_GROUP --body $resourceGroup --repo "$repoOwner/$newRepoName"
+    gh variable set AZURE_CLIENT_ID --body $clientId --repo "$repoOwner/$newRepoName"
+    gh variable set AZURE_TENANT_ID --body $tenantId --repo "$repoOwner/$newRepoName"
+    gh variable set AZURE_SUBSCRIPTION_ID --body $subscriptionId --repo "$repoOwner/$newRepoName"
+
+    Write-Host "Adding OIDC federated credential for $repoOwner/$newRepoName main branch..." -ForegroundColor Yellow
+    $appObjectId = az ad app show --id $clientId --query id -o tsv
+    $credentialFile = Join-Path $env:TEMP "oidc-main-$newRepoName.json"
+    @{
+        name = "github-main-$newRepoName"
+        issuer = "https://token.actions.githubusercontent.com"
+        subject = "repo:$repoOwner/$($newRepoName):ref:refs/heads/main"
+        audiences = @("api://AzureADTokenExchange")
+    } | ConvertTo-Json | Set-Content -Path $credentialFile -Encoding utf8
+
+    az ad app federated-credential create --id $appObjectId --parameters "@$credentialFile" --output none
+    Remove-Item $credentialFile -ErrorAction SilentlyContinue
+    Write-Host "OIDC federated credential configured (main)" -ForegroundColor Green
+
+    Write-Host "Adding OIDC federated credential for $repoOwner/$newRepoName pull_request..." -ForegroundColor Yellow
+    $prCredentialFile = Join-Path $env:TEMP "oidc-pr-$newRepoName.json"
+    @{
+        name = "github-pr-$newRepoName"
+        issuer = "https://token.actions.githubusercontent.com"
+        subject = "repo:$repoOwner/$($newRepoName):pull_request"
+        audiences = @("api://AzureADTokenExchange")
+    } | ConvertTo-Json | Set-Content -Path $prCredentialFile -Encoding utf8
+
+    az ad app federated-credential create --id $appObjectId --parameters "@$prCredentialFile" --output none
+    Remove-Item $prCredentialFile -ErrorAction SilentlyContinue
+    Write-Host "OIDC federated credential configured (pull_request)" -ForegroundColor Green
+
+    # --- Trigger deployment ---
+    Write-Host ""
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "Step 6: Triggering Initial Deployment" -ForegroundColor Cyan
+    Write-Host "========================================" -ForegroundColor Cyan
+
+    Write-Host "Waiting for repository to be fully ready..." -ForegroundColor Yellow
+    Start-Sleep -Seconds 10
+
+    Write-Host "Triggering deployment workflow..." -ForegroundColor Yellow
+    gh workflow run deploy.yml --repo "$repoOwner/$newRepoName"
+    Write-Host "Deployment triggered" -ForegroundColor Green
 }
-
-# ===========================================
-# Step 6: Set GitHub Secrets
-# ===========================================
-Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Step 6: Setting GitHub Secrets" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-
-Write-Host "Setting AZURE_WEBAPP_NAME (as variable)..." -ForegroundColor Yellow
-gh variable set AZURE_WEBAPP_NAME --body $webAppName --repo "$repoOwner/$newRepoName"
-
-Write-Host "Setting AZURE_WEBAPP_PUBLISH_PROFILE (as secret)..." -ForegroundColor Yellow
-$publishProfile | gh secret set AZURE_WEBAPP_PUBLISH_PROFILE --repo "$repoOwner/$newRepoName"
-
-# ===========================================
-# Step 7: Trigger Initial Deployment
-# ===========================================
-Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Step 7: Triggering Initial Deployment" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-
-Write-Host "Waiting for repository to be fully ready..." -ForegroundColor Yellow
-Start-Sleep -Seconds 10
-
-Write-Host "Triggering deployment workflow..." -ForegroundColor Yellow
-gh workflow run deploy.yml --repo "$repoOwner/$newRepoName"
-Write-Host "Deployment triggered" -ForegroundColor Green
 
 # ===========================================
 # Summary
