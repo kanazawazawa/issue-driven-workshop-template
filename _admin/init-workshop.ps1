@@ -14,7 +14,8 @@ param(
     [Parameter(Mandatory=$true)]
     [int]$ParticipantCount,
 
-    [string]$Location = "swedencentral",
+    [string]$Location = "japaneast",
+    [string[]]$FallbackLocations = @("japanwest"),
     [string]$ResourceGroup = "",
     [string]$AppServicePlan = "",
     [string]$StorageAccount = "",
@@ -28,6 +29,20 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+# ===========================================
+# Helper: Run az CLI with exit code checking
+# ===========================================
+function Invoke-AzCommand {
+    param([string]$Description, [scriptblock]$Command)
+    Write-Host "$Description" -ForegroundColor Yellow
+    $output = & $Command 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        $errorMsg = ($output | Out-String).Trim()
+        throw "az command failed: $Description`n$errorMsg"
+    }
+    return $output
+}
 
 # ===========================================
 # Validation
@@ -119,14 +134,40 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Step 1: Creating Azure Resources" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
-Write-Host "Creating resource group: $ResourceGroup" -ForegroundColor Yellow
-az group create --name $ResourceGroup --location $Location --output none
+Invoke-AzCommand -Description "Creating resource group: $ResourceGroup" -Command {
+    az group create --name $ResourceGroup --location $Location --output none
+}
 
-Write-Host "Creating App Service plan: $AppServicePlan ($Sku)" -ForegroundColor Yellow
-az appservice plan create --name $AppServicePlan --resource-group $ResourceGroup --location $Location --sku $Sku --output none
+# Try App Service Plan creation with region fallback
+$planLocations = @($Location) + $FallbackLocations
+$planCreated = $false
+$planLocation = $Location
 
-Write-Host "Creating storage account: $StorageAccount" -ForegroundColor Yellow
-az storage account create --name $StorageAccount --resource-group $ResourceGroup --location $Location --sku Standard_LRS --output none
+foreach ($loc in $planLocations) {
+    try {
+        Invoke-AzCommand -Description "Creating App Service plan: $AppServicePlan ($Sku) in $loc" -Command {
+            az appservice plan create --name $AppServicePlan --resource-group $ResourceGroup --location $loc --sku $Sku --output none
+        }
+        $planLocation = $loc
+        $planCreated = $true
+        Write-Host "App Service plan created in $loc" -ForegroundColor Green
+        break
+    }
+    catch {
+        Write-Host "Failed to create App Service plan in $loc : $_" -ForegroundColor Red
+        if ($loc -ne $planLocations[-1]) {
+            Write-Host "Trying next fallback location..." -ForegroundColor Yellow
+        }
+    }
+}
+
+if (-not $planCreated) {
+    throw "Failed to create App Service plan in any location: $($planLocations -join ', ')"
+}
+
+Invoke-AzCommand -Description "Creating storage account: $StorageAccount" -Command {
+    az storage account create --name $StorageAccount --resource-group $ResourceGroup --location $Location --sku Standard_LRS --output none
+}
 
 Write-Host "Azure resources created" -ForegroundColor Green
 
