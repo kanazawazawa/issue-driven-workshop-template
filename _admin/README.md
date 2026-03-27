@@ -54,9 +54,9 @@ Resource Group   : rg-workshop-et1xz0        ← ランダムサフィックス
 App Service Plan : plan-workshop-et1xz0 (P0v4)
 Storage Account  : saworkshopet1xz0
 Web App Prefix   : app-workshop-et1xz0
-GitHub Owner     : kanazawazawa               ← 自動検出
-Template Repo    : kanazawazawa/issue-driven-workshop-template
-Repo Prefix      : workshop-et1xz0
+Repo Owner       : kanazawazawa               ← 自動検出
+Template Repo    : kanazawazawa/issue-driven-workshop-template  ← git origin から自動検出 (owner/repo)
+Repo Name Prefix : workshop-et1xz0
 Visibility       : public
 
 Proceed? (yes/no):
@@ -82,7 +82,7 @@ Proceed? (yes/no):
 ./init-workshop.ps1 -ParticipantCount 10 -Location "japaneast" -Sku "B1"
 
 # リソース名を指定する場合（サフィックスなし）
-./init-workshop.ps1 -ParticipantCount 3 -ResourceGroup "rg-myteam" -WebAppNamePrefix "app-myteam" -RepoPrefix "myteam-workshop"
+./init-workshop.ps1 -ParticipantCount 3 -ResourceGroup "rg-myteam" -WebAppNamePrefix "app-myteam" -RepoNamePrefix "myteam-workshop"
 ```
 
 ---

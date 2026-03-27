@@ -32,8 +32,8 @@ $resourceGroup = $config.azure.resourceGroup
 $webAppName = "$($config.azure.webAppNamePrefix)-$Number"
 
 # GitHub
-$ownerName = $config.github.owner
-$repoName = "$($config.github.repoPrefix)-$Number"
+$repoOwner = $config.github.repoOwner
+$repoName = "$($config.github.repoNamePrefix)-$Number"
 
 # ===========================================
 # Confirmation
@@ -44,7 +44,7 @@ Write-Host "WARNING: This will delete the following resources" -ForegroundColor 
 Write-Host "========================================" -ForegroundColor Red
 Write-Host ""
 Write-Host "Web App    : $webAppName" -ForegroundColor Yellow
-Write-Host "Repository : $ownerName/$repoName" -ForegroundColor Yellow
+Write-Host "Repository : $repoOwner/$repoName" -ForegroundColor Yellow
 Write-Host ""
 
 $confirmation = Read-Host "Are you sure you want to continue? (yes/no)"
@@ -74,8 +74,8 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Step 2: Deleting GitHub Repository" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
-Write-Host "Deleting repository: $ownerName/$repoName" -ForegroundColor Yellow
-gh repo delete "$ownerName/$repoName" --yes
+Write-Host "Deleting repository: $repoOwner/$repoName" -ForegroundColor Yellow
+gh repo delete "$repoOwner/$repoName" --yes
 
 Write-Host "Repository deleted" -ForegroundColor Green
 
@@ -88,5 +88,5 @@ Write-Host "Cleanup Complete!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Deleted Web App    : $webAppName" -ForegroundColor White
-Write-Host "Deleted Repository : $ownerName/$repoName" -ForegroundColor White
+Write-Host "Deleted Repository : $repoOwner/$repoName" -ForegroundColor White
 Write-Host ""

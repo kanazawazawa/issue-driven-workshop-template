@@ -7,9 +7,9 @@
     "tableNamePrefix": "Expenses"
   },
   "github": {
-    "owner": "<YOUR_GITHUB_ORG_OR_USERNAME>",
-    "templateRepo": "<YOUR_GITHUB_ORG_OR_USERNAME>/issue-driven-workshop-template",
-    "repoPrefix": "issue-driven-workshop",
+    "repoOwner": "<YOUR_GITHUB_ORG_OR_USERNAME>",
+    "templateRepoFullName": "<OWNER/REPO — auto-detected from git origin by init-workshop.ps1>",
+    "repoNamePrefix": "issue-driven-workshop",
     "visibility": "public"
   }
 }
